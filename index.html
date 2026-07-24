@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>유통사업부 스케줄관리</title>
+<style>
+:root{--bg:#F7F8FA;--s:#FFF;--b:#E4E6EA;--bs:#C8CDD6;--tp:#1A1D23;--ts:#5A6170;--tm:#9BA3AF;--ac:#3B6FE8;--al:#EEF3FD;--ad:#2A52C4;--ok:#1D9E75;--okl:#E1F5EE;--wn:#BA7517;--wnl:#FAEEDA;--dg:#A32D2D;--dgl:#FCEBEB;--pp:#534AB7;--ppl:#EEEDFE;--r:10px;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--tp);min-height:100vh;font-size:15px;line-height:1.6;}
+.topbar{background:var(--s);border-bottom:1px solid var(--b);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.tbrand{font-size:16px;font-weight:600;letter-spacing:-.3px;}
+.rbg{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;display:none;}
+.rbg.rb-super{background:var(--ppl);color:var(--pp);display:inline-block;}
+.rbg.rb-admin{background:var(--al);color:var(--ac);display:inline-block;}
+.tabnav{background:var(--s);border-bottom:1px solid var(--b);padding:0 24px;display:flex;overflow-x:auto;scrollbar-width:none;}
+.tabnav::-webkit-scrollbar{display:none;}
+.tbtn{padding:12px 16px;font-size:13px;font-weight:500;color:var(--tm);cursor:pointer;border:none;background:none;border-bottom:2.5px solid transparent;transition:all .15s;font-family:inherit;white-space:nowrap;position:relative;top:1px;}
+.tbtn:hover{color:var(--tp);}
+.tbtn.active{color:var(--ac);border-bottom-color:var(--ac);}
+.main{padding:24px;max-width:1100px;margin:0 auto;}
+.pg{display:none;}.pg.active{display:block;}
+.card{background:var(--s);border:1px solid var(--b);border-radius:14px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:16px;}
+.cttl{font-size:15px;font-weight:600;}
+.csub{font-size:12px;color:var(--tm);margin-top:2px;}
+.chd{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:var(--r);font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .15s;font-family:inherit;line-height:1;}
+.btn-pr{background:var(--ac);color:#fff;}.btn-pr:hover{background:var(--ad);}
+.btn-se{background:var(--bg);color:var(--tp);border:1.5px solid var(--b);}.btn-se:hover{border-color:var(--bs);}
+.btn-ok{background:var(--ok);color:#fff;}.btn-ok:hover{background:#0F6E56;}
+.btn-dg{background:var(--dgl);color:var(--dg);border:1.5px solid #F7C1C1;}
+.btn-wn{background:var(--wnl);color:var(--wn);border:1.5px solid #FAC775;}
+.btn-sm{padding:6px 11px;font-size:13px;border-radius:8px;}
+.btn-xs{padding:4px 8px;font-size:12px;border-radius:6px;}
+.fg{margin-bottom:13px;}
+.fg label{display:block;font-size:13px;font-weight:500;color:var(--ts);margin-bottom:5px;}
+.fg input,.fg select,.fg textarea{width:100%;padding:10px 13px;border:1.5px solid var(--b);border-radius:var(--r);font-size:14px;background:var(--bg);color:var(--tp);outline:none;font-family:inherit;transition:border-color .15s;}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--ac);background:#fff;}
+.fg textarea{resize:vertical;min-height:70px;}
+.al{padding:11px 14px;border-radius:10px;font-size:13px;margin-bottom:12px;display:flex;align-items:flex-start;gap:8px;}
+.al-wn{background:var(--wnl);color:#633806;border:1px solid #FAC775;}
+.empty{padding:24px;text-align:center;color:var(--tm);font-size:13px;}
+/* 직원 관리 */
+.emp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;}
+.emp-card{background:var(--s);border:1.5px solid var(--b);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;}
+.emp-card.retired{background:#F5F5F5;opacity:.75;}
+.emp-top{display:flex;align-items:center;gap:10px;}
+.emp-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0;}
+.emp-name{font-size:14px;font-weight:700;}
+.emp-team{font-size:12px;color:var(--tm);}
+.emp-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}
+.color-dot{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;flex-shrink:0;}
+.color-dot.sel{border-color:var(--tp);}
+.color-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:4px;}
+/* 연차 달력 */
+.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.cal-nav h3{font-size:16px;font-weight:600;}
+.cal-nav-b{display:flex;gap:6px;}
+.cal-legend{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--b);border:1px solid var(--b);border-radius:10px;overflow:hidden;}
+.cal-dow{background:#F7F8FA;padding:7px 4px;text-align:center;font-size:11px;font-weight:600;color:var(--tm);}
+.cal-day{background:var(--s);padding:6px 4px;min-height:110px;cursor:pointer;transition:background .1s;position:relative;}
+.cal-day:hover{background:#F0F5FF;}
+.cal-day.om{background:#FAFAFA;}
+.cal-day.om .cdn{color:var(--tm);}
+.cal-day.today{background:var(--al);}
+.cal-day.today .cdn{color:var(--ac);font-weight:700;}
+.cal-day.we .cdn{color:#D04040;}
+.cal-day.hol .cdn{color:#D04040;font-weight:700;}
+.cal-day.hol{background:#FFF8F8;}
+.hol-name{font-size:9px;color:#D04040;font-weight:600;display:block;margin-bottom:2px;}
+.cdn{font-size:12px;font-weight:500;margin-bottom:3px;display:block;}
+.cal-chips{display:flex;flex-direction:column;gap:2px;}
+.cc{font-size:10px;font-weight:600;padding:1px 5px;border-radius:4px;white-space:normal;word-break:keep-all;line-height:1.35;}
+.cc-an{background:#FAEEDA;color:#854F0B;}
+.cc-ham{background:#E1F5EE;color:#085041;}
+.cc-hpm{background:#EEF3FD;color:#185FA5;}
+.cc-h75am{background:#FDE8E8;color:#9B2226;}
+.cc-h75pm{background:#FFF0DB;color:#8A5300;}
+.cc-hham{background:#EEEDFE;color:#3C3489;}
+.cc-hhpm{background:#EEEDFE;color:#3C3489;}
+.cc-hw{background:#E8ECF7;color:#2A3A7A;}
+.cc-gg{background:#E6F4EA;color:#1B6B3A;}
+.cpop{display:none;position:fixed;background:var(--s);border:1.5px solid var(--b);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.15);padding:14px;min-width:230px;z-index:400;}
+.cpop.open{display:block;}
+.cpop h4{font-size:13px;font-weight:600;margin-bottom:10px;}
+.at-btn{padding:7px 12px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1.5px solid var(--b);background:var(--bg);text-align:left;font-family:inherit;transition:all .15s;display:block;width:100%;margin-bottom:5px;}
+.at-btn:hover{border-color:var(--ac);background:var(--al);}
+.at-btn.sel{border-color:var(--ac);background:var(--al);color:var(--ac);}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.15);z-index:399;}
+.overlay.open{display:block;}
+/* 변경이력 */
+.log-row{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--b);font-size:13px;}
+.log-row:last-child{border-bottom:none;}
+.log-dt{color:var(--tm);font-size:11px;white-space:nowrap;}
+.log-by{font-weight:600;color:var(--ac);white-space:nowrap;}
+@media(max-width:640px){.main{padding:14px;}.topbar,.tabnav{padding:0 14px;}.cal-day{min-height:82px;}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="tbrand">📦 유통사업부 스케줄관리</div>
+  <div class="topbar-r" style="display:flex;align-items:center;gap:10px">
+    <span id="role-badge" class="rbg"></span>
+    <button class="btn btn-se btn-sm" id="admin-mode-btn" onclick="openPinPop()">🔒 관리자모드</button>
+    <button class="btn btn-se btn-sm" id="admin-logout-btn" style="display:none" onclick="doLogout()">로그아웃</button>
+  </div>
+</div>
+<div class="tabnav">
+  <button class="tbtn active" data-tab="cal">📅 연차&amp;휴일근무</button>
+  <button class="tbtn" data-tab="emp">👥 직원관리</button>
+  <button class="tbtn" data-tab="log">🕓 변경이력</button>
+</div>
+
+<div class="main">
+
+  <!-- ── 연차 달력 ── -->
+  <div class="pg active" id="pg-cal">
+    <div class="card" id="cal-notice-card">
+      <div id="cal-notice-view" style="font-size:13px;color:#633806;line-height:1.8"></div>
+      <div id="cal-notice-edit" style="display:none">
+        <textarea id="cal-notice-ta" rows="4" style="width:100%;padding:10px;border:1.5px solid var(--b);border-radius:8px;font-size:13px;font-family:inherit"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-pr btn-sm" onclick="saveCalNotice()">저장</button>
+          <button class="btn btn-se btn-sm" onclick="cancelCalNoticeEdit()">취소</button>
+        </div>
+      </div>
+      <button class="btn btn-se btn-xs" id="cal-notice-edit-btn" style="margin-top:8px" onclick="openCalNoticeEdit()">✏️ 공지 수정</button>
+    </div>
+
+    <div class="card">
+      <div class="cal-nav">
+        <h3 id="cal-ttl">-</h3>
+        <div class="cal-nav-b">
+          <button class="btn btn-se btn-sm" onclick="moveCal(-1)">‹ 이전달</button>
+          <button class="btn btn-se btn-sm" onclick="moveCal(0)">오늘</button>
+          <button class="btn btn-se btn-sm" onclick="moveCal(1)">다음달 ›</button>
+        </div>
+      </div>
+      <div class="cal-legend">
+        <span class="cc cc-an">연차</span>
+        <span class="cc cc-ham">오전반차</span>
+        <span class="cc cc-hpm">오후반차</span>
+        <span class="cc cc-h75am">0.75차(12시퇴근)</span>
+        <span class="cc cc-h75pm">0.75차(17시출근)</span>
+        <span class="cc cc-hham">오전반반차</span>
+        <span class="cc cc-hhpm">오후반반차</span>
+        <span class="cc cc-hw">휴일근무(토/일)</span>
+        <span class="cc cc-gg">공가(예비군)</span>
+      </div>
+      <p style="font-size:12px;color:var(--tm);margin-bottom:10px">※ 날짜 클릭 → 직원 선택 후 연차/휴일근무 등록</p>
+      <div class="cal-grid" id="cal-grid"></div>
+    </div>
+  </div>
+
+  <!-- ── 직원관리 ── -->
+  <div class="pg" id="pg-emp">
+    <div class="card" id="emp-add-card">
+      <div class="chd">
+        <div>
+          <div class="cttl">직원 등록</div>
+          <div class="csub">이름 / 구분색 / 팀을 입력해주세요</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="fg" style="margin-bottom:0">
+          <label>이름</label>
+          <input id="ne-name" placeholder="이름 입력">
+        </div>
+        <div class="fg" style="margin-bottom:0">
+          <label>팀</label>
+          <input id="ne-team" placeholder="예) 유통1팀 (선택)">
+        </div>
+      </div>
+      <div class="fg">
+        <label>구분색</label>
+        <div class="color-row" id="ne-color-row"></div>
+      </div>
+      <button class="btn btn-pr" onclick="submitAddEmp()">+ 직원 등록</button>
+    </div>
+    <div class="al al-wn" id="emp-noauth-msg" style="display:none">🔒 직원 등록/수정/퇴사·복직/삭제는 슈퍼관리자만 가능합니다. 상단의 '관리자모드'로 로그인해주세요.</div>
+
+    <div class="card">
+      <div class="chd">
+        <div class="cttl">직원 목록</div>
+        <div class="csub" id="emp-count">-</div>
+      </div>
+      <div class="emp-grid" id="emp-list"></div>
+    </div>
+  </div>
+
+  <!-- ── 변경이력 ── -->
+  <div class="pg" id="pg-log">
+    <div class="card">
+      <div class="chd"><div class="cttl">변경이력</div><div class="csub">최근 60일</div></div>
+      <div id="log-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 관리자모드 PIN 입력 팝업 -->
+<div class="overlay" id="pin-overlay" onclick="closePinPop()"></div>
+<div class="cpop" id="pin-pop" style="left:50%;top:80px;transform:translateX(-50%);min-width:260px">
+  <h4>관리자모드 - 비밀번호 입력</h4>
+  <div class="fg" style="margin-bottom:10px">
+    <input id="pin-input" type="password" placeholder="비밀번호(PIN)" inputmode="numeric" onkeydown="if(event.key==='Enter') submitPin();">
+  </div>
+  <div id="pin-err" style="color:var(--dg);font-size:12px;margin-bottom:8px;display:none">비밀번호가 올바르지 않습니다.</div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-se btn-sm" onclick="closePinPop()">취소</button>
+    <button class="btn btn-pr btn-sm" onclick="submitPin()">확인</button>
+  </div>
+</div>
+
+<!-- 직원 수정 팝업 -->
+<div class="overlay" id="emp-overlay" onclick="closeEmpEdit()"></div>
+<div class="cpop" id="emp-edit-pop" style="left:50%;top:80px;transform:translateX(-50%);min-width:280px">
+  <h4>직원 정보 수정</h4>
+  <div class="fg"><label>이름</label><input id="ee-name"></div>
+  <div class="fg"><label>팀</label><input id="ee-team"></div>
+  <div class="fg"><label>구분색</label><div class="color-row" id="ee-color-row"></div></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+    <button class="btn btn-se btn-sm" onclick="closeEmpEdit()">취소</button>
+    <button class="btn btn-pr btn-sm" onclick="submitEditEmp()">저장</button>
+  </div>
+</div>
+
+<!-- 연차 등록 팝업 -->
+<div class="cpop" id="cpop">
+  <h4 id="cpop-lbl">날짜 선택</h4>
+  <div id="cpop-emp-wrap" style="margin-bottom:8px">
+    <select id="cpop-emp-sel" style="width:100%;padding:6px 8px;border:1.5px solid var(--b);border-radius:6px;font-size:13px;font-family:inherit;outline:none;background:var(--s)"></select>
+  </div>
+  <div id="cpop-types"></div>
+  <div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn btn-dg btn-xs" id="cpop-del" style="display:none">삭제</button>
+    <button class="btn btn-se btn-xs" style="margin-left:auto" onclick="closeCPop()">닫기</button>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  설정
+// ══════════════════════════════════════════════════════════
+var GAS_URL = ''; // ← Apps Script 웹앱 배포 후 발급되는 URL을 여기에 넣으세요 (…/exec)
+
+var EMP_COLORS = ['#3B6FE8','#1D9E75','#BA7517','#534AB7','#A32D2D','#0891B2','#C2410C','#7C3AED','#65A30D','#DB2777'];
+
+var ATYPES = [
+  {k:'연차', l:'연차 (종일)', c:'cc-an'},
+  {k:'오전반차', l:'오전반차', c:'cc-ham'},
+  {k:'오후반차', l:'오후반차', c:'cc-hpm'},
+  {k:'0.75차(12시퇴근)', l:'0.75차 (12시퇴근, 6시간)', c:'cc-h75am'},
+  {k:'0.75차(17시출근)', l:'0.75차 (17시출근, 6시간)', c:'cc-h75pm'},
+  {k:'오전반반차', l:'오전반반차', c:'cc-hham'},
+  {k:'오후반반차', l:'오후반반차', c:'cc-hhpm'},
+  {k:'휴일근무', l:'휴일근무', c:'cc-hw', weekendOnly:true},
+  {k:'공가(예비군)', l:'공가(예비군)', c:'cc-gg'}
+];
+
+var KR_HOLIDAYS = {
+  '2024-01-01':1,'2024-02-09':1,'2024-02-10':1,'2024-02-11':1,'2024-02-12':1,
+  '2024-03-01':1,'2024-04-10':1,'2024-05-05':1,'2024-05-06':1,'2024-05-15':1,
+  '2024-06-06':1,'2024-08-15':1,'2024-09-16':1,'2024-09-17':1,'2024-09-18':1,
+  '2024-10-03':1,'2024-10-09':1,'2024-12-25':1,
+  '2025-01-01':1,'2025-01-28':1,'2025-01-29':1,'2025-01-30':1,
+  '2025-03-01':1,'2025-05-05':1,'2025-05-06':1,'2025-05-15':1,
+  '2025-06-06':1,'2025-08-15':1,'2025-10-03':1,'2025-10-06':1,'2025-10-07':1,'2025-10-08':1,
+  '2025-10-09':1,'2025-12-25':1,
+  '2026-01-01':1,'2026-02-16':1,'2026-02-17':1,'2026-02-18':1,
+  '2026-03-01':1,'2026-03-02':1,'2026-05-05':1,'2026-05-24':1,
+  '2026-06-06':1,'2026-07-17':1,'2026-08-15':1,'2026-08-17':1,
+  '2026-09-24':1,'2026-09-25':1,'2026-09-26':1,
+  '2026-10-03':1,'2026-10-09':1,'2026-12-25':1,
+  '2027-01-01':1,'2027-02-07':1,'2027-02-08':1,'2027-02-09':1,'2027-02-10':1,
+  '2027-03-01':1,'2027-05-05':1,'2027-05-13':1,
+  '2027-06-06':1,'2027-07-17':1,'2027-08-15':1,'2027-08-16':1,
+  '2027-09-14':1,'2027-09-15':1,'2027-09-16':1,
+  '2027-10-03':1,'2027-10-04':1,'2027-10-09':1,'2027-12-25':1,
+  '2028-01-01':1,'2028-01-26':1,'2028-01-27':1,'2028-01-28':1,
+  '2028-03-01':1,'2028-05-02':1,'2028-05-05':1,
+  '2028-06-06':1,'2028-07-17':1,'2028-08-15':1,
+  '2028-10-01':1,'2028-10-02':1,'2028-10-03':1,'2028-10-09':1,
+  '2028-12-25':1,
+  '2029-01-01':1,'2029-02-12':1,'2029-02-13':1,'2029-02-14':1,
+  '2029-03-01':1,'2029-05-05':1,'2029-05-20':1,
+  '2029-06-06':1,'2029-07-17':1,'2029-08-15':1,
+  '2029-09-02':1,'2029-09-03':1,'2029-09-04':1,'2029-09-05':1,
+  '2029-10-03':1,'2029-10-09':1,'2029-12-25':1,
+  '2030-01-01':1,'2030-02-03':1,'2030-02-04':1,'2030-02-05':1,
+  '2030-03-01':1,'2030-05-05':1,'2030-05-09':1,
+  '2030-06-06':1,'2030-07-17':1,'2030-08-15':1,
+  '2030-09-20':1,'2030-09-21':1,'2030-09-22':1,'2030-09-23':1,
+  '2030-10-03':1,'2030-10-09':1,'2030-12-25':1
+};
+function isHoliday(ds){ return !!KR_HOLIDAYS[ds]; }
+function isWeekend(ds){ var dow=new Date(ds).getDay(); return dow===0||dow===6; }
+var HOL_NAMES = {'01-01':'신정','03-01':'삼일절','05-05':'어린이날','06-06':'현충일','07-17':'제헌절','08-15':'광복절','10-03':'개천절','10-09':'한글날','12-25':'성탄절'};
+
+// ══════════════════════════════════════════════════════════
+//  API
+// ══════════════════════════════════════════════════════════
+function api(action, data){
+  if(!GAS_URL){
+    alert('GAS_URL이 설정되지 않았습니다. index.html 상단의 GAS_URL 값을 Apps Script 배포 URL로 채워주세요.');
+    return Promise.resolve({ok:false, error:'GAS_URL 미설정'});
+  }
+  return fetch(GAS_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(Object.assign({action:action}, data||{}))
+  }).then(function(r){return r.json();})
+    .catch(function(e){return {ok:false, error:'서버 연결 실패: '+e.message};});
+}
+function addLog(desc){
+  var dt = new Date().toISOString().slice(0,19).replace('T',' ');
+  api('addChangeLog', {dt:dt, by:'', desc:desc});
+}
+function currentPin(){ return localStorage.getItem('sch_pin') || ''; }
+
+// ══════════════════════════════════════════════════════════
+//  권한 (관리자모드: 슈퍼관리자 / 관리자)
+// ══════════════════════════════════════════════════════════
+var ROLE = null; // null | 'admin' | 'super'
+function isSuper(){ return ROLE==='super'; }
+function isAdminUp(){ return ROLE==='admin' || ROLE==='super'; }
+
+function refreshRoleUI(){
+  var badge = document.getElementById('role-badge');
+  var modeBtn = document.getElementById('admin-mode-btn');
+  var logoutBtn = document.getElementById('admin-logout-btn');
+  if(ROLE==='super'){
+    badge.textContent='슈퍼관리자'; badge.className='rbg rb-super';
+    modeBtn.style.display='none'; logoutBtn.style.display='inline-flex';
+  } else if(ROLE==='admin'){
+    badge.textContent='관리자'; badge.className='rbg rb-admin';
+    modeBtn.style.display='none'; logoutBtn.style.display='inline-flex';
+  } else {
+    badge.textContent=''; badge.className='rbg';
+    modeBtn.style.display='inline-flex'; logoutBtn.style.display='none';
+  }
+  renderEmpList();
+  loadCalNotice();
+}
+function initRole(){
+  var pin = currentPin();
+  if(!pin){ ROLE=null; refreshRoleUI(); return; }
+  api('checkPin', {pin:pin}).then(function(r){
+    ROLE = r.ok ? r.role : null;
+    if(!r.ok) localStorage.removeItem('sch_pin'); // PIN이 바뀐 경우 등
+    refreshRoleUI();
+  });
+}
+function openPinPop(){
+  document.getElementById('pin-input').value='';
+  document.getElementById('pin-err').style.display='none';
+  document.getElementById('pin-overlay').classList.add('open');
+  document.getElementById('pin-pop').classList.add('open');
+  setTimeout(function(){document.getElementById('pin-input').focus();}, 50);
+}
+function closePinPop(){
+  document.getElementById('pin-overlay').classList.remove('open');
+  document.getElementById('pin-pop').classList.remove('open');
+}
+function submitPin(){
+  var pin = document.getElementById('pin-input').value.trim();
+  if(!pin) return;
+  api('checkPin', {pin:pin}).then(function(r){
+    if(r.ok){
+      localStorage.setItem('sch_pin', pin);
+      ROLE = r.role;
+      closePinPop();
+      refreshRoleUI();
+    } else {
+      document.getElementById('pin-err').style.display='block';
+    }
+  });
+}
+function doLogout(){
+  localStorage.removeItem('sch_pin');
+  ROLE = null;
+  refreshRoleUI();
+}
+
+// ══════════════════════════════════════════════════════════
+//  전역 상태
+// ══════════════════════════════════════════════════════════
+var EMPLOYEES = [];
+function empName(id){ var e=EMPLOYEES.find(function(x){return x.id===id;}); return e?e.name:''; }
+function empColor(id){ var e=EMPLOYEES.find(function(x){return x.id===id;}); return e?(e.color||'#3B6FE8'):'#3B6FE8'; }
+
+function loadEmployees(){
+  return api('getEmployees', {}).then(function(r){
+    if(r.ok) EMPLOYEES = r.employees;
+    return r;
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  탭 전환
+// ══════════════════════════════════════════════════════════
+document.querySelectorAll('.tbtn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('.tbtn').forEach(function(b){b.classList.remove('active');});
+    document.querySelectorAll('.pg').forEach(function(p){p.classList.remove('active');});
+    btn.classList.add('active');
+    document.getElementById('pg-'+btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab==='emp') renderEmpList();
+    if(btn.dataset.tab==='log') loadLogs();
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+//  직원관리
+// ══════════════════════════════════════════════════════════
+function buildColorRow(container, selected, onPick){
+  container.innerHTML='';
+  EMP_COLORS.forEach(function(c){
+    var d=document.createElement('div');
+    d.className='color-dot'+(c===selected?' sel':'');
+    d.style.background=c;
+    d.addEventListener('click', function(){
+      container.querySelectorAll('.color-dot').forEach(function(x){x.classList.remove('sel');});
+      d.classList.add('sel');
+      onPick(c);
+    });
+    container.appendChild(d);
+  });
+}
+var NEW_EMP_COLOR = EMP_COLORS[0];
+buildColorRow(document.getElementById('ne-color-row'), NEW_EMP_COLOR, function(c){ NEW_EMP_COLOR=c; });
+
+function submitAddEmp(){
+  if(!isSuper()){ alert('슈퍼관리자만 직원을 등록할 수 있습니다.'); return; }
+  var name = document.getElementById('ne-name').value.trim();
+  var team = document.getElementById('ne-team').value.trim();
+  if(!name){ alert('이름을 입력해주세요.'); return; }
+  api('addEmployee', {pin:currentPin(), emp:{name:name, team:team, color:NEW_EMP_COLOR}}).then(function(r){
+    if(r.ok){
+      document.getElementById('ne-name').value='';
+      document.getElementById('ne-team').value='';
+      addLog('직원 등록: '+name);
+      loadEmployees().then(renderEmpList);
+    } else alert(r.error||'등록 실패');
+  });
+}
+
+function renderEmpList(){
+  var canEdit = isSuper();
+  document.getElementById('emp-add-card').style.display = canEdit ? '' : 'none';
+  document.getElementById('emp-noauth-msg').style.display = canEdit ? 'none' : 'flex';
+  loadEmployees().then(function(){
+    var list = document.getElementById('emp-list');
+    document.getElementById('emp-count').textContent = EMPLOYEES.length+'명';
+    if(!EMPLOYEES.length){ list.innerHTML='<div class="empty">등록된 직원이 없습니다.</div>'; return; }
+    var sorted = EMPLOYEES.slice().sort(function(a,b){
+      var ra=a.retired?1:0, rb=b.retired?1:0;
+      if(ra!==rb) return ra-rb;
+      return (a.name||'').localeCompare(b.name||'');
+    });
+    list.innerHTML = sorted.map(function(e){
+      var initial = (e.name||'?').replace(/^\(퇴\)/,'').slice(0,1);
+      return '<div class="emp-card'+(e.retired?' retired':'')+'">'+
+        '<div class="emp-top">'+
+          '<div class="emp-avatar" style="background:'+(e.color||'#3B6FE8')+'">'+initial+'</div>'+
+          '<div><div class="emp-name">'+e.name+'</div><div class="emp-team">'+(e.retired?('퇴사일 '+(e.retiredAt||'-')) : (e.team||'팀 미지정'))+'</div></div>'+
+        '</div>'+
+        (canEdit ? (
+        '<div class="emp-actions">'+
+          '<button class="btn btn-se btn-xs" onclick="openEmpEdit(\''+e.id+'\')">수정</button>'+
+          (e.retired
+            ? '<button class="btn btn-ok btn-xs" onclick="doUnretire(\''+e.id+'\',\''+e.name.replace(/'/g,"\\'")+'\')">복직처리</button>'
+            : '<button class="btn btn-wn btn-xs" onclick="doRetire(\''+e.id+'\',\''+e.name.replace(/'/g,"\\'")+'\')">퇴사처리</button>')+
+          '<button class="btn btn-dg btn-xs" onclick="doDeleteEmp(\''+e.id+'\',\''+e.name.replace(/'/g,"\\'")+'\')">삭제</button>'+
+        '</div>') : '')+
+      '</div>';
+    }).join('');
+  });
+}
+
+function doRetire(id, name){
+  if(!isSuper()) return;
+  if(!confirm(name+' 님을 퇴사 처리하시겠습니까?\n\n· 기존 연차 기록은 그대로 유지됩니다.\n· 표시 이름 앞에 "(퇴)"가 붙습니다.')) return;
+  api('retireEmployee', {pin:currentPin(), id:id}).then(function(r){
+    if(r.ok){ addLog('퇴사 처리: '+name); renderEmpList(); }
+    else alert(r.error||'처리 실패');
+  });
+}
+function doUnretire(id, name){
+  if(!isSuper()) return;
+  if(!confirm(name.replace(/^\(퇴\)/,'')+' 님을 복직 처리하시겠습니까?')) return;
+  api('unretireEmployee', {pin:currentPin(), id:id}).then(function(r){
+    if(r.ok){ addLog('복직 처리: '+name); renderEmpList(); }
+    else alert(r.error||'처리 실패');
+  });
+}
+function doDeleteEmp(id, name){
+  if(!isSuper()) return;
+  if(!confirm(name+' 님을 목록에서 완전히 삭제하시겠습니까?\n(연차 기록은 삭제되지 않고 남아있습니다)')) return;
+  api('deleteEmployee', {pin:currentPin(), id:id}).then(function(r){
+    if(r.ok){ addLog('직원 삭제: '+name); renderEmpList(); }
+    else alert(r.error||'삭제 실패');
+  });
+}
+
+var _editEmpId = null, _editEmpColor = null;
+function openEmpEdit(id){
+  if(!isSuper()) return;
+  var e = EMPLOYEES.find(function(x){return x.id===id;});
+  if(!e) return;
+  _editEmpId = id; _editEmpColor = e.color || EMP_COLORS[0];
+  document.getElementById('ee-name').value = e.name || '';
+  document.getElementById('ee-team').value = e.team || '';
+  buildColorRow(document.getElementById('ee-color-row'), _editEmpColor, function(c){ _editEmpColor=c; });
+  document.getElementById('emp-overlay').classList.add('open');
+  document.getElementById('emp-edit-pop').classList.add('open');
+}
+function closeEmpEdit(){
+  document.getElementById('emp-overlay').classList.remove('open');
+  document.getElementById('emp-edit-pop').classList.remove('open');
+}
+function submitEditEmp(){
+  if(!isSuper()) return;
+  var name = document.getElementById('ee-name').value.trim();
+  var team = document.getElementById('ee-team').value.trim();
+  if(!name){ alert('이름을 입력해주세요.'); return; }
+  api('updateEmployee', {pin:currentPin(), id:_editEmpId, fields:{name:name, team:team, color:_editEmpColor}}).then(function(r){
+    if(r.ok){ addLog('직원 정보 수정: '+name); closeEmpEdit(); loadEmployees().then(function(){renderEmpList(); loadCal();}); }
+    else alert(r.error||'저장 실패');
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  연차 & 휴일근무 달력
+// ══════════════════════════════════════════════════════════
+var cY=new Date().getFullYear(), cM=new Date().getMonth();
+var cAn=[];
+var popDate=null;
+
+function moveCal(d){
+  if(d===0){ cY=new Date().getFullYear(); cM=new Date().getMonth(); }
+  else{ cM+=d; if(cM<0){cM=11;cY--;} if(cM>11){cM=0;cY++;} }
+  loadCal();
+}
+function loadCal(){
+  var ym = cY+'-'+String(cM+1).padStart(2,'0');
+  document.getElementById('cal-ttl').textContent = cY+'년 '+(cM+1)+'월';
+  api('getAnnuals', {ym:ym}).then(function(r){
+    cAn = r.ok ? r.annuals : [];
+    renderCal();
+  });
+}
+function renderCal(){
+  var grid = document.getElementById('cal-grid');
+  grid.innerHTML='';
+  ['일','월','화','수','목','금','토'].forEach(function(d){
+    var el=document.createElement('div'); el.className='cal-dow'; el.textContent=d; grid.appendChild(el);
+  });
+  var first = new Date(cY,cM,1).getDay();
+  var last = new Date(cY,cM+1,0).getDate();
+  var today = new Date().toISOString().slice(0,10);
+  var prevLast = new Date(cY,cM,0).getDate();
+  for(var i=first-1;i>=0;i--){
+    var d=prevLast-i;
+    var ym2 = cM===0 ? (cY-1)+'-12' : cY+'-'+String(cM).padStart(2,'0');
+    grid.appendChild(makeDayEl(ym2+'-'+String(d).padStart(2,'0'), d, true, today));
+  }
+  for(var d=1; d<=last; d++){
+    var ds = cY+'-'+String(cM+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    grid.appendChild(makeDayEl(ds, d, false, today));
+  }
+  var used=first+last, rem = used%7===0 ? 0 : 7-(used%7);
+  var nm = cM===11 ? (cY+1)+'-01' : cY+'-'+String(cM+2).padStart(2,'0');
+  for(var d=1; d<=rem; d++) grid.appendChild(makeDayEl(nm+'-'+String(d).padStart(2,'0'), d, true, today));
+}
+function makeDayEl(ds, dayNum, other, today){
+  var dow = new Date(ds).getDay();
+  var hol = isHoliday(ds);
+  var el = document.createElement('div');
+  el.className = 'cal-day'+(other?' om':'')+(ds===today?' today':'')+(dow===0||dow===6?' we':'')+(hol?' hol':'');
+  el.addEventListener('click', function(e){ openCPop(ds, e); });
+  var dn = document.createElement('span'); dn.className='cdn'; dn.textContent=dayNum; el.appendChild(dn);
+  if(hol && !other){
+    var hn = HOL_NAMES[ds.slice(5)] || '공휴일';
+    var hspan = document.createElement('span'); hspan.className='hol-name'; hspan.textContent=hn; el.appendChild(hspan);
+  }
+  var chips = document.createElement('div'); chips.className='cal-chips';
+  cAn.filter(function(a){return a.date===ds;}).forEach(function(a){
+    var t = ATYPES.find(function(x){return x.k===a.type;}) || {c:'cc-an'};
+    var nm = empName(a.empId) || a.empName;
+    var ch = document.createElement('div'); ch.className='cc '+t.c; ch.title=nm+' '+a.type; ch.textContent=nm+' '+a.type;
+    chips.appendChild(ch);
+  });
+  el.appendChild(chips);
+  return el;
+}
+
+function openCPop(date, e){
+  e.stopPropagation();
+  popDate = date;
+  var pop = document.getElementById('cpop');
+  var empWrap = document.getElementById('cpop-emp-wrap');
+
+  if(!isAdminUp()){
+    // 권한 없음 — 조회 전용
+    empWrap.style.display='none';
+    document.getElementById('cpop-lbl').textContent = date+' - 연차 현황';
+    document.getElementById('cpop-del').style.display='none';
+    var tc = document.getElementById('cpop-types');
+    var dayAnns = cAn.filter(function(a){return a.date===date;});
+    tc.innerHTML = dayAnns.length
+      ? '<div style="font-size:12px;color:var(--ts);line-height:1.8">'+dayAnns.map(function(a){return '<div>'+(empName(a.empId)||a.empName)+' — '+a.type+'</div>';}).join('')+'</div>'
+      : '<div style="font-size:12px;color:var(--tm)">등록된 내역이 없습니다.</div>';
+    tc.innerHTML += '<div style="font-size:11px;color:var(--tm);margin-top:8px">⚠️ 등록/변경은 관리자모드에서만 가능합니다.</div>';
+    openPopAt(pop, e);
+    return;
+  }
+
+  empWrap.style.display='block';
+  var empSel = document.getElementById('cpop-emp-sel');
+  var activeEmps = EMPLOYEES.filter(function(u){return !u.retired;})
+    .sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
+  empSel.innerHTML = activeEmps.map(function(u){return '<option value="'+u.id+'">'+u.name+'</option>';}).join('');
+  empSel.onchange = function(){ refreshCPopState(date); };
+  refreshCPopState(date);
+  openPopAt(pop, e);
+}
+function openPopAt(pop, e){
+  var margin=8, x=e.clientX+margin, y=e.clientY+margin;
+  if(x+240>window.innerWidth) x=e.clientX-240-margin;
+  if(y+300>window.innerHeight) y=e.clientY-300-margin;
+  pop.style.left=x+'px'; pop.style.top=y+'px';
+  pop.classList.add('open');
+}
+function refreshCPopState(date){
+  var empSel = document.getElementById('cpop-emp-sel');
+  var targetId = empSel.value;
+  var tc = document.getElementById('cpop-types');
+  tc.innerHTML='';
+  document.getElementById('cpop-lbl').textContent = date+' - 연차/휴일근무 등록';
+  var exist = cAn.find(function(a){return a.empId===targetId && a.date===date;});
+  document.getElementById('cpop-del').style.display = exist ? 'inline-flex' : 'none';
+  var others = cAn.filter(function(a){return a.date===date && a.empId!==targetId;});
+  if(others.length){
+    var box = document.createElement('div');
+    box.style.cssText='font-size:12px;color:var(--ts);margin-bottom:8px;line-height:1.8';
+    box.innerHTML = others.map(function(a){return '<div>'+(empName(a.empId)||a.empName)+' — '+a.type+'</div>';}).join('');
+    tc.appendChild(box);
+  }
+  ATYPES.filter(function(t){return !t.weekendOnly || isWeekend(date);}).forEach(function(t){
+    var btn = document.createElement('button');
+    btn.className = 'at-btn'+(exist && exist.type===t.k ? ' sel' : '');
+    btn.textContent = t.l;
+    btn.addEventListener('click', function(){ saveAnnualType(t.k); });
+    tc.appendChild(btn);
+  });
+}
+function closeCPop(){ document.getElementById('cpop').classList.remove('open'); }
+function saveAnnualType(type){
+  if(!isAdminUp()) return;
+  if(!popDate){ alert('날짜를 다시 선택해주세요.'); return; }
+  var empSel = document.getElementById('cpop-emp-sel');
+  var id = empSel.value;
+  if(!id){ alert('직원을 선택해주세요.'); return; }
+  var name = empName(id);
+  api('saveAnnual', {pin:currentPin(), a:{empId:id, empName:name, date:popDate, type:type}}).then(function(res){
+    if(res.ok){
+      cAn = cAn.filter(function(a){return !(a.empId===id && a.date===popDate);});
+      cAn.push({empId:id, empName:name, date:popDate, type:type});
+      addLog(name+' '+popDate+' '+type+' 등록');
+      closeCPop(); renderCal();
+    } else alert(res.error||'저장 실패');
+  });
+}
+function deleteAnnual(){
+  if(!isAdminUp()) return;
+  if(!confirm('등록된 연차/휴일근무를 삭제하시겠습니까?')) return;
+  if(!popDate) return;
+  var empSel = document.getElementById('cpop-emp-sel');
+  var id = empSel.value;
+  var name = empName(id);
+  api('saveAnnual', {pin:currentPin(), a:{empId:id, empName:name, date:popDate, type:''}}).then(function(res){
+    if(res.ok){
+      cAn = cAn.filter(function(a){return !(a.empId===id && a.date===popDate);});
+      addLog(name+' '+popDate+' 연차/휴일근무 삭제');
+      closeCPop(); renderCal();
+    } else alert(res.error||'삭제 실패');
+  });
+}
+document.getElementById('cpop-del').addEventListener('click', deleteAnnual);
+document.addEventListener('click', function(e){
+  var pop = document.getElementById('cpop');
+  if(pop.classList.contains('open') && !pop.contains(e.target)) closeCPop();
+});
+
+// ══════════════════════════════════════════════════════════
+//  연차 공지
+// ══════════════════════════════════════════════════════════
+function loadCalNotice(){
+  document.getElementById('cal-notice-edit-btn').style.display = isAdminUp() ? 'inline-flex' : 'none';
+  api('getCalNotice', {}).then(function(res){
+    var notice = res.ok ? (res.notice||'') : '';
+    var viewEl = document.getElementById('cal-notice-view');
+    if(!notice.trim()){
+      viewEl.innerHTML = isAdminUp() ? '<span style="color:#C0955A">공지사항을 입력해주세요.</span>' : '';
+    } else {
+      viewEl.innerHTML = notice.split('\n').map(function(l){return '<div>'+(l||'&nbsp;')+'</div>';}).join('');
+    }
+  });
+}
+function openCalNoticeEdit(){
+  var notice = document.getElementById('cal-notice-view').innerText || '';
+  document.getElementById('cal-notice-ta').value = notice;
+  document.getElementById('cal-notice-view').style.display='none';
+  document.getElementById('cal-notice-edit').style.display='block';
+  document.getElementById('cal-notice-edit-btn').style.display='none';
+}
+function cancelCalNoticeEdit(){
+  document.getElementById('cal-notice-view').style.display='block';
+  document.getElementById('cal-notice-edit').style.display='none';
+  document.getElementById('cal-notice-edit-btn').style.display='inline-flex';
+}
+function saveCalNotice(){
+  if(!isAdminUp()) return;
+  var notice = document.getElementById('cal-notice-ta').value.trim();
+  api('saveCalNotice', {pin:currentPin(), notice:notice}).then(function(res){
+    if(res.ok){ addLog('연차 공지 수정'); cancelCalNoticeEdit(); loadCalNotice(); }
+    else alert(res.error||'저장 실패');
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  변경이력
+// ══════════════════════════════════════════════════════════
+function loadLogs(){
+  api('getChangeLogs', {days:60}).then(function(r){
+    var list = document.getElementById('log-list');
+    if(!r.ok || !r.logs.length){ list.innerHTML='<div class="empty">변경이력이 없습니다.</div>'; return; }
+    list.innerHTML = r.logs.map(function(l){
+      return '<div class="log-row"><div class="log-dt">'+(l.dt||'')+'</div><div>'+(l.desc||'')+'</div></div>';
+    }).join('');
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  초기화
+// ══════════════════════════════════════════════════════════
+loadEmployees().then(function(){
+  loadCal();
+  initRole(); // 관리자모드 상태 복원 (renderEmpList/loadCalNotice 포함)
+});
+</script>
+</body>
+</html>
