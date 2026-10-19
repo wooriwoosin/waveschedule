@@ -15,6 +15,60 @@
 create extension if not exists pgcrypto with schema extensions;
 
 -- ════════════════════════════════════════════════════════════════
+--  0. 정리 — 모양이 다른 테이블이 이미 있으면 지우고 새로 만든다
+--
+--  "column \"dt\" does not exist" 같은 오류는, 이름은 같지만 컬럼이 다른
+--  테이블이 이미 있을 때 create table if not exists 가 조용히 건너뛰고
+--  뒤따르는 인덱스만 실패해서 난다.
+--
+--  실제 데이터가 들어있으면 지우지 않고 중단한다.
+--  등록해 둔 PIN 은 모양이 맞으면 그대로 보존한다.
+-- ════════════════════════════════════════════════════════════════
+
+do $cleanup$
+declare
+  v_rows bigint;
+  v_blocked text := '';
+  r record;
+begin
+  -- 사람이 만든 데이터가 들어있는지 먼저 본다
+  for r in select unnest(array['employees','annuals','change_logs']) as t loop
+    if exists (select 1 from information_schema.tables
+                where table_schema = 'public' and table_name = r.t) then
+      execute format('select count(*) from public.%I', r.t) into v_rows;
+      if v_rows > 0 then
+        v_blocked := v_blocked || '  · ' || r.t || ': ' || v_rows || '행' || chr(10);
+      end if;
+    end if;
+  end loop;
+
+  if v_blocked <> '' then
+    raise exception E'데이터가 들어있는 테이블이 있어 중단했습니다:
+%
+이미 이전을 마치셨다면 이 파일을 다시 돌릴 필요가 없습니다.
+정말 처음부터 다시 만들려면 supabase-reset.sql 을 먼저 실행하세요.', v_blocked;
+  end if;
+
+  -- 비어 있거나 모양이 다르므로 지운다 (settings 의 기본 공지 1행은 다시 만들어진다)
+  drop table if exists public.annuals      cascade;
+  drop table if exists public.employees    cascade;
+  drop table if exists public.change_logs  cascade;
+  drop table if exists public.settings     cascade;
+  drop table if exists public.pin_attempts cascade;
+
+  -- admin_pins 는 등록한 PIN 이 들어있을 수 있다. 모양이 맞으면 건드리지 않는다.
+  if exists (select 1 from information_schema.tables
+              where table_schema = 'public' and table_name = 'admin_pins')
+     and not exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'admin_pins'
+                and column_name = 'pin_hash') then
+    drop table public.admin_pins cascade;
+    raise notice 'admin_pins 의 모양이 달라 새로 만듭니다. PIN 을 다시 등록해주세요.';
+  end if;
+end
+$cleanup$;
+
+-- ════════════════════════════════════════════════════════════════
 --  1. 테이블
 -- ════════════════════════════════════════════════════════════════
 
