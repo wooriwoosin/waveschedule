@@ -20,17 +20,21 @@ drop table if exists public.settings     cascade;
 drop table if exists public.admin_pins   cascade;
 drop table if exists public.pin_attempts cascade;
 
-drop function if exists public.migrate_import(text,jsonb,boolean);
-drop function if exists public.set_admin_pin(text,text,text);
-drop function if exists public.save_notice(text,text);
-drop function if exists public.delete_employee(text,text);
-drop function if exists public.unretire_employee(text,text);
-drop function if exists public.retire_employee(text,text);
-drop function if exists public.update_employee(text,text,text,text,text);
-drop function if exists public.add_employee(text,text,text,text);
-drop function if exists public.save_annual(text,text,text,date,text);
-drop function if exists public.check_pin(text);
-drop function if exists public.assert_admin(text,boolean);
-drop function if exists public.pin_role(text);
+-- 함수는 인자 구성이 달라도 지워지도록 이름으로 찾아 지운다
+do $$
+declare r record;
+begin
+  for r in
+    select p.oid::regprocedure::text as sig
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('pin_role','assert_admin','check_pin','save_annual',
+                         'add_employee','update_employee','retire_employee',
+                         'unretire_employee','delete_employee','save_notice',
+                         'set_admin_pin','migrate_import')
+  loop
+    execute 'drop function if exists ' || r.sig || ' cascade';
+  end loop;
+end $$;
 
 -- 이제 supabase-schema.sql 을 다시 실행하고, PIN 을 다시 등록하세요.

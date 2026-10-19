@@ -49,6 +49,26 @@ begin
 정말 처음부터 다시 만들려면 supabase-reset.sql 을 먼저 실행하세요.', v_blocked;
   end if;
 
+  -- ── 기존 함수 제거 ──
+  -- create or replace 는 반환형을 바꿀 수 없다("cannot change return type").
+  -- 인자 구성이 달라도 확실히 지우기 위해 이름으로 찾아 실제 시그니처를 꺼내 지운다.
+  for r in
+    select p.oid::regprocedure::text as sig
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('pin_role','assert_admin','check_pin','save_annual',
+                         'add_employee','update_employee','retire_employee',
+                         'unretire_employee','delete_employee','save_notice',
+                         'set_admin_pin','migrate_import')
+  loop
+    execute 'drop function if exists ' || r.sig || ' cascade';
+  end loop;
+
+  -- ── 남아있을 수 있는 인덱스 이름 정리 ──
+  drop index if exists public.annuals_date_idx;
+  drop index if exists public.change_logs_dt_idx;
+
   -- 비어 있거나 모양이 다르므로 지운다 (settings 의 기본 공지 1행은 다시 만들어진다)
   drop table if exists public.annuals      cascade;
   drop table if exists public.employees    cascade;
