@@ -334,14 +334,14 @@ function step2(){
   busy(true);
   log('');
   log('── 이전 실행 ──────────────────────────────');
-  sbRpc(c, 'migrate_import', {p_pin:c.pin, p_data:PAYLOAD})
+  sbRpc(c, 'wn_migrate_import', {p_pin:c.pin, p_data:PAYLOAD})
     .then(function(r){ report(r); })
     .catch(function(e){
       if(/이미 데이터가 있습니다/.test(e.message)){
         log('⚠ Supabase 에 이미 데이터가 있습니다.','wn');
         if(confirm('Supabase 의 기존 직원/연차/이력을 모두 지우고 다시 넣을까요?\n\n(Google 시트는 건드리지 않습니다)')){
           log('덮어쓰기로 다시 실행합니다…','dim');
-          return sbRpc(c,'migrate_import',{p_pin:c.pin, p_data:PAYLOAD, p_replace:true}).then(report);
+          return sbRpc(c,'wn_migrate_import',{p_pin:c.pin, p_data:PAYLOAD, p_replace:true}).then(report);
         }
         log('취소했습니다.','dim');
         return;
@@ -370,10 +370,10 @@ function step3(){
   log('── 검증: Supabase 에서 다시 읽기 ─────────');
   var t0 = Date.now();
   Promise.all([
-    sbGet(c, 'employees?select=id,name,team,color,retired,retired_at&order=name'),
-    sbGet(c, 'annuals?select=emp_id,emp_name,date,type&order=date'),
-    sbGet(c, 'settings?select=value&key=eq.cal_notice'),
-    sbGet(c, 'change_logs?select=dt,description&order=dt.desc&limit=5')
+    sbGet(c, 'wn_employees?select=id,name,team,color,retired,retired_at&order=name'),
+    sbGet(c, 'wn_annuals?select=emp_id,emp_name,date,type&order=date'),
+    sbGet(c, 'wn_settings?select=value&key=eq.cal_notice'),
+    sbGet(c, 'wn_change_logs?select=dt,description&order=dt.desc&limit=5')
   ]).then(function(r){
     var ms = Date.now()-t0;
     log('응답 '+ms+'ms  (기존 Apps Script 는 보통 800~2000ms)','ok');

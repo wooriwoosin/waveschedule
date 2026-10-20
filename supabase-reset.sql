@@ -1,40 +1,40 @@
 -- ════════════════════════════════════════════════════════════════
---  ⚠ 전체 초기화 — 데이터가 모두 지워집니다. 되돌릴 수 없습니다.
+--  ⚠ 웨이브넷 스케줄(wn_) 전체 초기화 — 되돌릴 수 없습니다.
 --
---  supabase-schema.sql 이 "데이터가 들어있는 테이블이 있어 중단했습니다"
---  라고 거부했는데도 정말 처음부터 다시 만들고 싶을 때만 쓰세요.
+--  이 데이터베이스에는 다른 앱(시흥영업팀 스케줄 등)이 함께 들어있습니다.
+--  이 파일은 wn_ 로 시작하는 것만 지웁니다. 다른 앱은 건드리지 않습니다.
 --
---  먼저 아래 조회로 무엇이 지워질지 확인하세요:
+--  먼저 무엇이 지워질지 확인하세요:
 --
---    select 'employees' t, count(*) from public.employees
---    union all select 'annuals',    count(*) from public.annuals
---    union all select 'change_logs',count(*) from public.change_logs;
+--    select table_name from information_schema.tables
+--     where table_schema='public' and table_name like 'wn\_%';
 --
 --  Google 시트는 건드리지 않으므로, 지워도 시트에서 다시 이전할 수 있습니다.
 -- ════════════════════════════════════════════════════════════════
 
-drop table if exists public.annuals      cascade;
-drop table if exists public.employees    cascade;
-drop table if exists public.change_logs  cascade;
-drop table if exists public.settings     cascade;
-drop table if exists public.admin_pins   cascade;
-drop table if exists public.pin_attempts cascade;
-
--- 함수는 인자 구성이 달라도 지워지도록 이름으로 찾아 지운다
-do $$
+do $reset$
 declare r record;
 begin
+  -- 함수: 인자 구성이 달라도 지워지도록 이름으로 찾아 지운다 (wn_ 만)
   for r in
     select p.oid::regprocedure::text as sig
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public'
-       and p.proname in ('pin_role','assert_admin','check_pin','save_annual',
-                         'add_employee','update_employee','retire_employee',
-                         'unretire_employee','delete_employee','save_notice',
-                         'set_admin_pin','migrate_import')
+       and p.proname like 'wn\_%'
   loop
     execute 'drop function if exists ' || r.sig || ' cascade';
   end loop;
-end $$;
 
--- 이제 supabase-schema.sql 을 다시 실행하고, PIN 을 다시 등록하세요.
+  -- 테이블: wn_ 로 시작하는 것만
+  for r in
+    select table_name as t from information_schema.tables
+     where table_schema = 'public' and table_type = 'BASE TABLE'
+       and table_name like 'wn\_%'
+  loop
+    execute format('drop table if exists public.%I cascade', r.t);
+    raise notice '지움: %', r.t;
+  end loop;
+end
+$reset$;
+
+-- 이제 supabase-schema.sql 을 실행하고, PIN 을 다시 등록하세요.
