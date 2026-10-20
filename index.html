@@ -4,10 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>유통사업부 스케줄관리</title>
-<link rel="preconnect" href="https://script.google.com" crossorigin>
-<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-<link rel="dns-prefetch" href="https://script.google.com">
-<link rel="dns-prefetch" href="https://script.googleusercontent.com">
+<link rel="preconnect" href="https://iwfiilgjiqkdsuybqwwk.supabase.co" crossorigin>
+<link rel="dns-prefetch" href="https://iwfiilgjiqkdsuybqwwk.supabase.co">
 <style>
 :root{--bg:#F7F8FA;--s:#FFF;--b:#E4E6EA;--bs:#C8CDD6;--tp:#1A1D23;--ts:#5A6170;--tm:#9BA3AF;--ac:#3B6FE8;--al:#EEF3FD;--ad:#2A52C4;--ok:#1D9E75;--okl:#E1F5EE;--wn:#BA7517;--wnl:#FAEEDA;--dg:#A32D2D;--dgl:#FCEBEB;--pp:#534AB7;--ppl:#EEEDFE;--r:10px;}
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -258,8 +256,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 // ══════════════════════════════════════════════════════════
 //  설정
 // ══════════════════════════════════════════════════════════
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbwyuDoovIVN97ciiC3lty8J_hB6u-cZm2un__29nKTtajhJQB8t0gpPxEOtRSjwOqCkfg/exec'; // ← Apps Script 웹앱 배포 후 발급되는 URL을 여기에 넣으세요 (…/exec)
-// 더 빠르게: gas-batch-snippet.gs 를 Apps Script 에 붙이면 첫 화면 요청이 1건으로 줄어든다 (선택)
+// Supabase. 공개 키(publishable)는 브라우저에 노출되는 것이 정상이며,
+// 실제 방어는 DB 쪽 RLS 와 PIN 검증 함수가 한다 (supabase-schema.sql 참고).
+// 이 데이터베이스에는 다른 앱도 함께 있으므로 이 앱의 객체는 전부 wn_ 로 시작한다.
+var SB_URL = 'https://iwfiilgjiqkdsuybqwwk.supabase.co';
+var SB_KEY = 'sb_publishable_q3SLb7fToGXt9J4o7tkYOw_QArw7mQ9';
 
 var EMP_COLORS = ['#3B6FE8','#1D9E75','#BA7517','#534AB7','#A32D2D','#0891B2','#C2410C','#7C3AED','#65A30D','#DB2777'];
 
@@ -319,33 +320,38 @@ function isWeekend(ds){ var dow=new Date(ds).getDay(); return dow===0||dow===6; 
 var HOL_NAMES = {'01-01':'신정','03-01':'삼일절','05-05':'어린이날','06-06':'현충일','07-17':'제헌절','08-15':'광복절','10-03':'개천절','10-09':'한글날','12-25':'성탄절'};
 
 // ══════════════════════════════════════════════════════════
-//  API — 캐시 / 중복요청 병합 / 타임아웃 / 오프라인 폴백
-//  (Apps Script 호출 1건 = 302 리다이렉트 포함 왕복 2회 + 실행시간.
-//   그래서 "호출 횟수"와 "직렬 대기"를 줄이는 것이 속도의 전부다.)
+//  API — Supabase (PostgREST) + 캐시 / 중복요청 병합 / 타임아웃
+//
+//  화면 코드는 예전 그대로 api('getEmployees', …) 를 부른다.
+//  바뀐 것은 이 계층의 전송 방식뿐이다.
+//   · 조회  → GET  /rest/v1/wn_<테이블>?…   (RLS 가 조회만 허용)
+//   · 변경  → POST /rest/v1/rpc/wn_<함수>   (함수 안에서 PIN 검증)
+//  변경이력은 각 함수가 같은 트랜잭션에서 직접 남기므로
+//  예전처럼 따로 기록 요청을 보내지 않는다.
 // ══════════════════════════════════════════════════════════
-var REQ_TIMEOUT = 20000;
+var REQ_TIMEOUT = 15000;
 var LS_PREFIX   = 'sch_c_';
 
-// 읽기 액션만 캐시/병합 대상
+// 응답이 빨라졌으므로(보통 100ms 안쪽) 캐시는 짧게 잡는다.
+// 여러 명이 동시에 쓸 때 남의 변경이 늦게 보이는 일을 줄이기 위함.
 var READ_TTL = {
-  getEmployees : 120000,
-  getAnnuals   : 120000,
-  getCalNotice : 180000,
-  getChangeLogs:  60000,
+  getEmployees : 30000,
+  getAnnuals   : 20000,
+  getCalNotice : 60000,
+  getChangeLogs: 15000,
   checkPin     : 300000
 };
 // 새로고침 후에도 즉시 그리기 위해 localStorage 에 남기는 액션
 var PERSIST = { getEmployees:1, getAnnuals:1, getCalNotice:1 };
-// 쓰기 액션 → 무효화할 읽기 액션
+// 쓰기 액션 → 무효화할 읽기 액션 (이제 모든 쓰기가 변경이력도 남긴다)
 var INVALIDATES = {
-  addEmployee    : ['getEmployees'],
-  updateEmployee : ['getEmployees'],
-  retireEmployee : ['getEmployees'],
-  unretireEmployee:['getEmployees'],
-  deleteEmployee : ['getEmployees'],
-  saveAnnual     : ['getAnnuals'],
-  saveCalNotice  : ['getCalNotice'],
-  addChangeLog   : ['getChangeLogs']
+  addEmployee     : ['getEmployees','getChangeLogs'],
+  updateEmployee  : ['getEmployees','getAnnuals','getChangeLogs'],
+  retireEmployee  : ['getEmployees','getAnnuals','getChangeLogs'],
+  unretireEmployee: ['getEmployees','getAnnuals','getChangeLogs'],
+  deleteEmployee  : ['getEmployees','getChangeLogs'],
+  saveAnnual      : ['getAnnuals','getChangeLogs'],
+  saveCalNotice   : ['getCalNotice','getChangeLogs']
 };
 
 var _mem = {};       // key -> {t:저장시각, v:응답}
@@ -353,7 +359,7 @@ var _inflight = {};  // key -> Promise (동일 요청 병합)
 var _pending = 0;
 
 function cacheKey(action, data){ return action+'|'+JSON.stringify(data||{}); }
-function lsGet(k){ try{ var s=localStorage.getItem(LS_PREFIX+k); return s?JSON.parse(s):null; }catch(e){ return null; } }
+function lsGet(k){ try{ var x=localStorage.getItem(LS_PREFIX+k); return x?JSON.parse(x):null; }catch(e){ return null; } }
 function lsSet(k,v){ try{ localStorage.setItem(LS_PREFIX+k, JSON.stringify(v)); }catch(e){} }
 
 // 네트워크 없이 캐시만 조회 (첫 페인트용)
@@ -380,41 +386,163 @@ function setSync(on){
 function bumpPending(){ _pending++; setSync(true); }
 function dropPending(){ _pending = Math.max(0,_pending-1); if(!_pending) setSync(false); }
 
-function rawRequest(body){
+// ── 전송 ───────────────────────────────────────────────────
+function sbFetch(path, opt){
+  opt = opt || {};
+  opt.headers = Object.assign({
+    'apikey': SB_KEY,
+    'Authorization': 'Bearer ' + SB_KEY,
+    'Accept': 'application/json'
+  }, opt.headers || {});
+
   var ctl = (typeof AbortController!=='undefined') ? new AbortController() : null;
   var timer = null;
-  var opt = {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'}, // preflight 회피
-    body: JSON.stringify(body)
-  };
   if(ctl){ opt.signal = ctl.signal; timer = setTimeout(function(){ ctl.abort(); }, REQ_TIMEOUT); }
-  return fetch(GAS_URL, opt)
-    .then(function(r){ return r.text(); })
-    .then(function(t){
-      if(timer) clearTimeout(timer);
-      try{ return JSON.parse(t); }
-      catch(e){ return {ok:false, badjson:true, error:'서버 응답 형식 오류'}; }
+
+  return fetch(SB_URL + '/rest/v1/' + path, opt)
+    .then(function(r){
+      return r.text().then(function(t){
+        if(timer) clearTimeout(timer);
+        var j = null;
+        if(t) { try{ j = JSON.parse(t); }catch(e){} }
+        if(!r.ok){
+          // PostgREST 는 오류를 {message, code, details, hint} 로 준다.
+          // DB 함수가 raise exception 한 한글 메시지가 message 에 그대로 담긴다.
+          var msg = (j && (j.message || j.error_description || j.error)) || ('서버 오류 ('+r.status+')');
+          return {__err: msg};
+        }
+        return {__ok: j};
+      });
     })
     .catch(function(e){
       if(timer) clearTimeout(timer);
       var aborted = e && e.name === 'AbortError';
-      return {ok:false, netfail:true, error: aborted ? '서버 응답 지연(시간 초과)' : '서버 연결 실패: '+((e&&e.message)||e)};
+      return {__err: aborted ? '서버 응답 지연(시간 초과)' : '서버 연결 실패: '+((e&&e.message)||e), __net:true};
     });
 }
+function sbGet(path){ return sbFetch(path); }
+function sbRpc(fn, body){
+  return sbFetch('rpc/'+fn, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body||{})
+  });
+}
 
+// ── 날짜/시각 도우미 ───────────────────────────────────────
+function monthRange(ym){
+  var m = /^(\d{4})-(\d{2})$/.exec(ym || '');
+  if(!m) return null;
+  var y = +m[1], mo = +m[2];
+  var last = new Date(y, mo, 0).getDate();   // 해당 월의 마지막 날
+  return {from: ym+'-01', to: ym+'-'+String(last).padStart(2,'0')};
+}
+// 저장은 UTC, 표시는 한국시간. (예전 GAS 는 UTC 를 그대로 보여줘 9시간 어긋나 있었다)
+function toKST(iso){
+  var d = new Date(iso);
+  if(isNaN(d)) return String(iso||'');
+  return new Date(d.getTime() + 9*3600*1000).toISOString().slice(0,19).replace('T',' ');
+}
+
+// ── 액션 → Supabase 호출 ───────────────────────────────────
+function callAction(action, data){
+  var d = data || {};
+  switch(action){
+    case 'getEmployees':
+      return sbGet('wn_employees?select=id,name,team,color,retired,retired_at&order=name')
+        .then(function(r){
+          if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+          return {ok:true, employees:(r.__ok||[]).map(function(e){
+            return {id:e.id, name:e.name, team:e.team, color:e.color,
+                    retired:!!e.retired, retiredAt:e.retired_at || ''};
+          })};
+        });
+
+    case 'getAnnuals':
+      var mr = monthRange(d.ym);
+      if(!mr) return Promise.resolve({ok:true, annuals:[]});
+      return sbGet('wn_annuals?select=emp_id,emp_name,date,type'
+                   +'&date=gte.'+mr.from+'&date=lte.'+mr.to)
+        .then(function(r){
+          if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+          return {ok:true, annuals:(r.__ok||[]).map(function(a){
+            return {empId:a.emp_id, empName:a.emp_name, date:a.date, type:a.type};
+          })};
+        });
+
+    case 'getCalNotice':
+      return sbGet('wn_settings?select=value&key=eq.cal_notice')
+        .then(function(r){
+          if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+          var rows = r.__ok || [];
+          return {ok:true, notice: rows.length ? (rows[0].value||'') : ''};
+        });
+
+    case 'getChangeLogs':
+      var since = new Date(Date.now() - (d.days||60)*86400000).toISOString();
+      return sbGet('wn_change_logs?select=dt,description&dt=gte.'+since
+                   +'&order=dt.desc&limit=1000')
+        .then(function(r){
+          if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+          return {ok:true, logs:(r.__ok||[]).map(function(l){
+            return {dt: toKST(l.dt), desc: l.description};
+          })};
+        });
+
+    case 'checkPin':
+      return sbRpc('wn_check_pin', {p_pin:d.pin}).then(unwrap);
+
+    case 'saveAnnual':
+      var a = d.a || {};
+      return sbRpc('wn_save_annual', {
+        p_pin:d.pin, p_emp_id:a.empId, p_emp_name:a.empName,
+        p_date:a.date, p_type:a.type || ''
+      }).then(unwrap);
+
+    case 'addEmployee':
+      var emp = d.emp || {};
+      return sbRpc('wn_add_employee', {
+        p_pin:d.pin, p_name:emp.name, p_team:emp.team||'', p_color:emp.color||''
+      }).then(unwrap);
+
+    case 'updateEmployee':
+      var f = d.fields || {};
+      return sbRpc('wn_update_employee', {
+        p_pin:d.pin, p_id:d.id, p_name:f.name, p_team:f.team||'', p_color:f.color||''
+      }).then(unwrap);
+
+    case 'retireEmployee':
+      return sbRpc('wn_retire_employee', {p_pin:d.pin, p_id:d.id}).then(unwrap);
+    case 'unretireEmployee':
+      return sbRpc('wn_unretire_employee', {p_pin:d.pin, p_id:d.id}).then(unwrap);
+    case 'deleteEmployee':
+      return sbRpc('wn_delete_employee', {p_pin:d.pin, p_id:d.id}).then(unwrap);
+    case 'saveCalNotice':
+      return sbRpc('wn_save_notice', {p_pin:d.pin, p_notice:d.notice||''}).then(unwrap);
+  }
+  return Promise.resolve({ok:false, error:'알 수 없는 요청: '+action});
+
+  // RPC 는 {ok:…} 형태의 JSON 을 그대로 돌려준다
+  function unwrap(r){
+    if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+    var v = r.__ok;
+    if(v && typeof v === 'object') return v;
+    return {ok:true};
+  }
+}
+
+// ── 공개 진입점 (화면 코드가 쓰는 것은 이것뿐) ─────────────
 function api(action, data, opts){
   opts = opts || {};
-  if(!GAS_URL){
-    alert('GAS_URL이 설정되지 않았습니다. index.html 상단의 GAS_URL 값을 Apps Script 배포 URL로 채워주세요.');
-    return Promise.resolve({ok:false, error:'GAS_URL 미설정'});
+  if(!SB_URL || !SB_KEY){
+    alert('Supabase 주소/키가 설정되지 않았습니다. index.html 상단의 SB_URL, SB_KEY 를 확인해주세요.');
+    return Promise.resolve({ok:false, error:'Supabase 미설정'});
   }
-  var payload = Object.assign({action:action}, data||{});
 
   // ── 쓰기: 병합/캐시 없음, 성공 시 관련 캐시 무효화 ──
   if(!READ_TTL[action]){
     bumpPending();
-    return rawRequest(payload).then(function(r){
+    return callAction(action, data).then(function(r){
       dropPending();
       if(r && r.ok) (INVALIDATES[action]||[]).forEach(dropCache);
       return r;
@@ -429,7 +557,7 @@ function api(action, data, opts){
   if(_inflight[k]) return _inflight[k];
 
   bumpPending();
-  var p = rawRequest(payload).then(function(r){
+  var p = callAction(action, data).then(function(r){
     delete _inflight[k];
     dropPending();
     if(r && r.ok){
@@ -444,76 +572,6 @@ function api(action, data, opts){
   _inflight[k] = p;
   return p;
 }
-
-// ── 선택적 배치 (Apps Script 에 batch 액션이 있으면 부팅 요청 4건 → 1건) ──
-//    gas-batch-snippet.gs 를 백엔드에 붙이면 자동으로 켜진다. 없으면 그냥 개별 요청.
-var BATCH_FLAG = 'sch_batch';
-function batchSupport(){
-  try{
-    var v = JSON.parse(localStorage.getItem(BATCH_FLAG)||'null');
-    if(v && v.s === 'y') return 'y';
-    if(v && v.s === 'n' && (Date.now()-v.t) < 604800000) return 'n'; // 미지원은 일주일 뒤 재확인
-  }catch(e){}
-  return 'unknown';
-}
-function setBatchSupport(ok){
-  try{ localStorage.setItem(BATCH_FLAG, JSON.stringify({s: ok?'y':'n', t:Date.now()})); }catch(e){}
-}
-// reqs: [{action:'getEmployees', data:{}}, ...]
-// 성공하면 결과를 개별 캐시에 채워 넣어, 이후 로더들이 네트워크 없이 끝나게 한다.
-function apiBatch(reqs){
-  bumpPending();
-  return rawRequest({action:'batch', requests:reqs.map(function(q){
-    return Object.assign({action:q.action}, q.data||{});
-  })}).then(function(r){
-    dropPending();
-    if(!r || !r.ok || !r.results || r.results.length !== reqs.length){
-      if(r && !r.netfail) setBatchSupport(false); // 서버가 batch 를 모른다
-      return null;
-    }
-    setBatchSupport(true);
-    reqs.forEach(function(q, i){
-      var res = r.results[i];
-      if(!res || !res.ok) return;
-      var entry = {t:Date.now(), v:res};
-      _mem[cacheKey(q.action, q.data)] = entry;
-      if(PERSIST[q.action]) lsSet(cacheKey(q.action, q.data), entry);
-    });
-    return r.results;
-  });
-}
-
-// ── 변경이력: 매 작업마다 추가 왕복이 붙지 않도록 큐에 모아 한가할 때 전송 ──
-var _logQ = [], _logTimer = null;
-function addLog(desc){
-  var dt = new Date().toISOString().slice(0,19).replace('T',' ');
-  _logQ.push({dt:dt, desc:desc});
-  scheduleLogFlush();
-}
-function scheduleLogFlush(){
-  if(_logTimer) clearTimeout(_logTimer);
-  _logTimer = setTimeout(flushLogs, 1200);
-}
-function flushLogs(){
-  _logTimer = null;
-  if(!_logQ.length) return;
-  if(_pending > 0){ scheduleLogFlush(); return; } // 사용자 요청이 먼저
-  var items = _logQ.splice(0, _logQ.length);
-  items.reduce(function(chain, it){
-    return chain.then(function(){ return api('addChangeLog', {dt:it.dt, by:'', desc:it.desc}); });
-  }, Promise.resolve());
-}
-// 탭을 닫아도 이력이 유실되지 않도록
-window.addEventListener('pagehide', function(){
-  if(!_logQ.length) return;
-  var items = _logQ.splice(0, _logQ.length);
-  try{
-    items.forEach(function(it){
-      var b = new Blob([JSON.stringify({action:'addChangeLog', dt:it.dt, by:'', desc:it.desc})], {type:'text/plain;charset=utf-8'});
-      navigator.sendBeacon(GAS_URL, b);
-    });
-  }catch(e){}
-});
 
 function currentPin(){ return localStorage.getItem('sch_pin') || ''; }
 
@@ -647,7 +705,6 @@ function submitAddEmp(){
     if(r.ok){
       document.getElementById('ne-name').value='';
       document.getElementById('ne-team').value='';
-      addLog('직원 등록: '+name);
       reloadEmpList();
     } else alert(r.error||'등록 실패');
   });
@@ -695,7 +752,7 @@ function doRetire(id, name){
   if(!isSuper()) return;
   if(!confirm(name+' 님을 퇴사 처리하시겠습니까?\n\n· 기존 연차 기록은 그대로 유지됩니다.\n· 표시 이름 앞에 "(퇴)"가 붙습니다.')) return;
   api('retireEmployee', {pin:currentPin(), id:id}).then(function(r){
-    if(r.ok){ addLog('퇴사 처리: '+name); reloadEmpList(); }
+    if(r.ok){ reloadEmpList(); }
     else alert(r.error||'처리 실패');
   });
 }
@@ -703,7 +760,7 @@ function doUnretire(id, name){
   if(!isSuper()) return;
   if(!confirm(name.replace(/^\(퇴\)/,'')+' 님을 복직 처리하시겠습니까?')) return;
   api('unretireEmployee', {pin:currentPin(), id:id}).then(function(r){
-    if(r.ok){ addLog('복직 처리: '+name); reloadEmpList(); }
+    if(r.ok){ reloadEmpList(); }
     else alert(r.error||'처리 실패');
   });
 }
@@ -711,7 +768,7 @@ function doDeleteEmp(id, name){
   if(!isSuper()) return;
   if(!confirm(name+' 님을 목록에서 완전히 삭제하시겠습니까?\n(연차 기록은 삭제되지 않고 남아있습니다)')) return;
   api('deleteEmployee', {pin:currentPin(), id:id}).then(function(r){
-    if(r.ok){ addLog('직원 삭제: '+name); reloadEmpList(); }
+    if(r.ok){ reloadEmpList(); }
     else alert(r.error||'삭제 실패');
   });
 }
@@ -738,7 +795,7 @@ function submitEditEmp(){
   var team = document.getElementById('ee-team').value.trim();
   if(!name){ alert('이름을 입력해주세요.'); return; }
   api('updateEmployee', {pin:currentPin(), id:_editEmpId, fields:{name:name, team:team, color:_editEmpColor}}).then(function(r){
-    if(r.ok){ addLog('직원 정보 수정: '+name); closeEmpEdit(); loadEmployees(true).then(function(){renderEmpList(); renderCal();}); }
+    if(r.ok){ closeEmpEdit(); loadEmployees(true).then(function(){renderEmpList(); renderCal();}); }
     else alert(r.error||'저장 실패');
   });
 }
@@ -904,7 +961,6 @@ function saveAnnualType(type){
     if(res.ok){
       cAn = cAn.filter(function(a){return !(a.empId===id && a.date===popDate);});
       cAn.push({empId:id, empName:name, date:popDate, type:type});
-      addLog(name+' '+popDate+' '+type+' 등록');
       closeCPop(); renderCal();
     } else alert(res.error||'저장 실패');
   });
@@ -919,7 +975,6 @@ function deleteAnnual(){
   api('saveAnnual', {pin:currentPin(), a:{empId:id, empName:name, date:popDate, type:''}}).then(function(res){
     if(res.ok){
       cAn = cAn.filter(function(a){return !(a.empId===id && a.date===popDate);});
-      addLog(name+' '+popDate+' 연차/휴일근무 삭제');
       closeCPop(); renderCal();
     } else alert(res.error||'삭제 실패');
   });
@@ -974,7 +1029,7 @@ function saveCalNotice(){
   if(!isAdminUp()) return;
   var notice = document.getElementById('cal-notice-ta').value.trim();
   api('saveCalNotice', {pin:currentPin(), notice:notice}).then(function(res){
-    if(res.ok){ addLog('연차 공지 수정'); cancelCalNoticeEdit(); loadCalNotice(true); }
+    if(res.ok){ cancelCalNoticeEdit(); loadCalNotice(true); }
     else alert(res.error||'저장 실패');
   });
 }
@@ -993,7 +1048,6 @@ function paintLogs(r){
   }).join('');
 }
 function loadLogs(){
-  flushLogs();  // 대기 중인 이력을 먼저 올리고 조회
   paintLogs(peek('getChangeLogs', {days:60}));
   return api('getChangeLogs', {days:60}).then(paintLogs);
 }
@@ -1019,26 +1073,10 @@ function loadLogs(){
     initRole();
   }
 
-  if(batchSupport() === 'y'){
-    var pin = currentPin();
-    var reqs = [
-      {action:'getEmployees', data:{}},
-      {action:'getAnnuals',   data:{ym:ymOf(cY,cM)}},
-      {action:'getCalNotice', data:{}}
-    ];
-    if(pin) reqs.push({action:'checkPin', data:{pin:pin}});
-    paintCalCached();                // 캐시가 있으면 먼저 보여준다 (요청은 배치로)
-    apiBatch(reqs).then(function(results){
-      hydrate(!results);             // 배치 성공 → 캐시로 즉시 완료 / 실패 → 개별 요청
-    });
-  } else {
-    paintCalCached();
-    hydrate(true);
-    // 백엔드가 batch 를 지원하는지 한가할 때 확인 (첫 화면 경로 밖)
-    if(batchSupport() === 'unknown'){
-      setTimeout(function(){ apiBatch([{action:'getCalNotice', data:{}}]); }, 4000);
-    }
-  }
+  // 캐시로 먼저 그리고, 필요한 요청 4건을 한 번에 동시 발사한다.
+  // Supabase 는 호출당 100ms 안쪽이라 묶을 필요가 없다.
+  paintCalCached();
+  hydrate(true);
 })();
 </script>
 </body>
