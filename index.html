@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>유통사업부 스케줄관리</title>
+<link rel="preconnect" href="https://iwfiilgjiqkdsuybqwwk.supabase.co" crossorigin>
+<link rel="dns-prefetch" href="https://iwfiilgjiqkdsuybqwwk.supabase.co">
 <style>
 :root{--bg:#F7F8FA;--s:#FFF;--b:#E4E6EA;--bs:#C8CDD6;--tp:#1A1D23;--ts:#5A6170;--tm:#9BA3AF;--ac:#3B6FE8;--al:#EEF3FD;--ad:#2A52C4;--ok:#1D9E75;--okl:#E1F5EE;--wn:#BA7517;--wnl:#FAEEDA;--dg:#A32D2D;--dgl:#FCEBEB;--pp:#534AB7;--ppl:#EEEDFE;--r:10px;}
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -13,6 +15,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .rbg{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;display:none;}
 .rbg.rb-super{background:var(--ppl);color:var(--pp);display:inline-block;}
 .rbg.rb-admin{background:var(--al);color:var(--ac);display:inline-block;}
+#sync-dot{display:none;width:7px;height:7px;border-radius:50%;background:var(--ac);margin-left:8px;vertical-align:middle;animation:syncp 1s ease-in-out infinite;}
+@keyframes syncp{0%,100%{opacity:.25}50%{opacity:1}}
 .tabnav{background:var(--s);border-bottom:1px solid var(--b);padding:0 24px;display:flex;overflow-x:auto;scrollbar-width:none;}
 .tabnav::-webkit-scrollbar{display:none;}
 .tbtn{padding:12px 16px;font-size:13px;font-weight:500;color:var(--tm);cursor:pointer;border:none;background:none;border-bottom:2.5px solid transparent;transition:all .15s;font-family:inherit;white-space:nowrap;position:relative;top:1px;}
@@ -106,7 +110,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="topbar">
   <div class="tbrand">📦 유통사업부 스케줄관리</div>
   <div class="topbar-r" style="display:flex;align-items:center;gap:10px">
-    <span id="role-badge" class="rbg"></span>
+    <span id="role-badge" class="rbg"></span><span id="sync-dot" title="동기화 중"></span>
     <button class="btn btn-se btn-sm" id="admin-mode-btn" onclick="openPinPop()">🔒 관리자모드</button>
     <button class="btn btn-se btn-sm" id="admin-logout-btn" style="display:none" onclick="doLogout()">로그아웃</button>
   </div>
@@ -252,7 +256,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 // ══════════════════════════════════════════════════════════
 //  설정
 // ══════════════════════════════════════════════════════════
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbwyuDoovIVN97ciiC3lty8J_hB6u-cZm2un__29nKTtajhJQB8t0gpPxEOtRSjwOqCkfg/exec'; // ← Apps Script 웹앱 배포 후 발급되는 URL을 여기에 넣으세요 (…/exec)
+// Supabase. 공개 키(publishable)는 브라우저에 노출되는 것이 정상이며,
+// 실제 방어는 DB 쪽 RLS 와 PIN 검증 함수가 한다 (supabase-schema.sql 참고).
+// 이 데이터베이스에는 다른 앱도 함께 있으므로 이 앱의 객체는 전부 wn_ 로 시작한다.
+var SB_URL = 'https://iwfiilgjiqkdsuybqwwk.supabase.co';
+var SB_KEY = 'sb_publishable_q3SLb7fToGXt9J4o7tkYOw_QArw7mQ9';
 
 var EMP_COLORS = ['#3B6FE8','#1D9E75','#BA7517','#534AB7','#A32D2D','#0891B2','#C2410C','#7C3AED','#65A30D','#DB2777'];
 
@@ -312,24 +320,259 @@ function isWeekend(ds){ var dow=new Date(ds).getDay(); return dow===0||dow===6; 
 var HOL_NAMES = {'01-01':'신정','03-01':'삼일절','05-05':'어린이날','06-06':'현충일','07-17':'제헌절','08-15':'광복절','10-03':'개천절','10-09':'한글날','12-25':'성탄절'};
 
 // ══════════════════════════════════════════════════════════
-//  API
+//  API — Supabase (PostgREST) + 캐시 / 중복요청 병합 / 타임아웃
+//
+//  화면 코드는 예전 그대로 api('getEmployees', …) 를 부른다.
+//  바뀐 것은 이 계층의 전송 방식뿐이다.
+//   · 조회  → GET  /rest/v1/wn_<테이블>?…   (RLS 가 조회만 허용)
+//   · 변경  → POST /rest/v1/rpc/wn_<함수>   (함수 안에서 PIN 검증)
+//  변경이력은 각 함수가 같은 트랜잭션에서 직접 남기므로
+//  예전처럼 따로 기록 요청을 보내지 않는다.
 // ══════════════════════════════════════════════════════════
-function api(action, data){
-  if(!GAS_URL){
-    alert('GAS_URL이 설정되지 않았습니다. index.html 상단의 GAS_URL 값을 Apps Script 배포 URL로 채워주세요.');
-    return Promise.resolve({ok:false, error:'GAS_URL 미설정'});
-  }
-  return fetch(GAS_URL, {
+var REQ_TIMEOUT = 15000;
+var LS_PREFIX   = 'sch_c_';
+
+// 응답이 빨라졌으므로(보통 100ms 안쪽) 캐시는 짧게 잡는다.
+// 여러 명이 동시에 쓸 때 남의 변경이 늦게 보이는 일을 줄이기 위함.
+var READ_TTL = {
+  getEmployees : 30000,
+  getAnnuals   : 20000,
+  getCalNotice : 60000,
+  getChangeLogs: 15000,
+  checkPin     : 300000
+};
+// 새로고침 후에도 즉시 그리기 위해 localStorage 에 남기는 액션
+var PERSIST = { getEmployees:1, getAnnuals:1, getCalNotice:1 };
+// 쓰기 액션 → 무효화할 읽기 액션 (이제 모든 쓰기가 변경이력도 남긴다)
+var INVALIDATES = {
+  addEmployee     : ['getEmployees','getChangeLogs'],
+  updateEmployee  : ['getEmployees','getAnnuals','getChangeLogs'],
+  retireEmployee  : ['getEmployees','getAnnuals','getChangeLogs'],
+  unretireEmployee: ['getEmployees','getAnnuals','getChangeLogs'],
+  deleteEmployee  : ['getEmployees','getChangeLogs'],
+  saveAnnual      : ['getAnnuals','getChangeLogs'],
+  saveCalNotice   : ['getCalNotice','getChangeLogs']
+};
+
+var _mem = {};       // key -> {t:저장시각, v:응답}
+var _inflight = {};  // key -> Promise (동일 요청 병합)
+var _pending = 0;
+
+function cacheKey(action, data){ return action+'|'+JSON.stringify(data||{}); }
+function lsGet(k){ try{ var x=localStorage.getItem(LS_PREFIX+k); return x?JSON.parse(x):null; }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(LS_PREFIX+k, JSON.stringify(v)); }catch(e){} }
+
+// 네트워크 없이 캐시만 조회 (첫 페인트용)
+function peek(action, data){
+  var k = cacheKey(action, data);
+  var e = _mem[k];
+  if(!e && PERSIST[action]){ e = lsGet(k); if(e) _mem[k] = e; }
+  return e && e.v ? e.v : null;
+}
+function dropCache(prefix){
+  Object.keys(_mem).forEach(function(k){ if(k.indexOf(prefix+'|')===0) delete _mem[k]; });
+  try{
+    for(var i=localStorage.length-1;i>=0;i--){
+      var kk = localStorage.key(i);
+      if(kk && kk.indexOf(LS_PREFIX+prefix+'|')===0) localStorage.removeItem(kk);
+    }
+  }catch(e){}
+}
+
+function setSync(on){
+  var el = document.getElementById('sync-dot');
+  if(el) el.style.display = on ? 'inline-block' : 'none';
+}
+function bumpPending(){ _pending++; setSync(true); }
+function dropPending(){ _pending = Math.max(0,_pending-1); if(!_pending) setSync(false); }
+
+// ── 전송 ───────────────────────────────────────────────────
+function sbFetch(path, opt){
+  opt = opt || {};
+  opt.headers = Object.assign({
+    'apikey': SB_KEY,
+    'Authorization': 'Bearer ' + SB_KEY,
+    'Accept': 'application/json'
+  }, opt.headers || {});
+
+  var ctl = (typeof AbortController!=='undefined') ? new AbortController() : null;
+  var timer = null;
+  if(ctl){ opt.signal = ctl.signal; timer = setTimeout(function(){ ctl.abort(); }, REQ_TIMEOUT); }
+
+  return fetch(SB_URL + '/rest/v1/' + path, opt)
+    .then(function(r){
+      return r.text().then(function(t){
+        if(timer) clearTimeout(timer);
+        var j = null;
+        if(t) { try{ j = JSON.parse(t); }catch(e){} }
+        if(!r.ok){
+          // PostgREST 는 오류를 {message, code, details, hint} 로 준다.
+          // DB 함수가 raise exception 한 한글 메시지가 message 에 그대로 담긴다.
+          var msg = (j && (j.message || j.error_description || j.error)) || ('서버 오류 ('+r.status+')');
+          return {__err: msg};
+        }
+        return {__ok: j};
+      });
+    })
+    .catch(function(e){
+      if(timer) clearTimeout(timer);
+      var aborted = e && e.name === 'AbortError';
+      return {__err: aborted ? '서버 응답 지연(시간 초과)' : '서버 연결 실패: '+((e&&e.message)||e), __net:true};
+    });
+}
+function sbGet(path){ return sbFetch(path); }
+function sbRpc(fn, body){
+  return sbFetch('rpc/'+fn, {
     method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(Object.assign({action:action}, data||{}))
-  }).then(function(r){return r.json();})
-    .catch(function(e){return {ok:false, error:'서버 연결 실패: '+e.message};});
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body||{})
+  });
 }
-function addLog(desc){
-  var dt = new Date().toISOString().slice(0,19).replace('T',' ');
-  api('addChangeLog', {dt:dt, by:'', desc:desc});
+
+// ── 날짜/시각 도우미 ───────────────────────────────────────
+function monthRange(ym){
+  var m = /^(\d{4})-(\d{2})$/.exec(ym || '');
+  if(!m) return null;
+  var y = +m[1], mo = +m[2];
+  var last = new Date(y, mo, 0).getDate();   // 해당 월의 마지막 날
+  return {from: ym+'-01', to: ym+'-'+String(last).padStart(2,'0')};
 }
+// 저장은 UTC, 표시는 한국시간. (예전 GAS 는 UTC 를 그대로 보여줘 9시간 어긋나 있었다)
+function toKST(iso){
+  var d = new Date(iso);
+  if(isNaN(d)) return String(iso||'');
+  return new Date(d.getTime() + 9*3600*1000).toISOString().slice(0,19).replace('T',' ');
+}
+
+// ── 액션 → Supabase 호출 ───────────────────────────────────
+function callAction(action, data){
+  var d = data || {};
+  switch(action){
+    case 'getEmployees':
+      return sbGet('wn_employees?select=id,name,team,color,retired,retired_at&order=name')
+        .then(function(r){
+          if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+          return {ok:true, employees:(r.__ok||[]).map(function(e){
+            return {id:e.id, name:e.name, team:e.team, color:e.color,
+                    retired:!!e.retired, retiredAt:e.retired_at || ''};
+          })};
+        });
+
+    case 'getAnnuals':
+      var mr = monthRange(d.ym);
+      if(!mr) return Promise.resolve({ok:true, annuals:[]});
+      return sbGet('wn_annuals?select=emp_id,emp_name,date,type'
+                   +'&date=gte.'+mr.from+'&date=lte.'+mr.to)
+        .then(function(r){
+          if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+          return {ok:true, annuals:(r.__ok||[]).map(function(a){
+            return {empId:a.emp_id, empName:a.emp_name, date:a.date, type:a.type};
+          })};
+        });
+
+    case 'getCalNotice':
+      return sbGet('wn_settings?select=value&key=eq.cal_notice')
+        .then(function(r){
+          if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+          var rows = r.__ok || [];
+          return {ok:true, notice: rows.length ? (rows[0].value||'') : ''};
+        });
+
+    case 'getChangeLogs':
+      var since = new Date(Date.now() - (d.days||60)*86400000).toISOString();
+      return sbGet('wn_change_logs?select=dt,description&dt=gte.'+since
+                   +'&order=dt.desc&limit=1000')
+        .then(function(r){
+          if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+          return {ok:true, logs:(r.__ok||[]).map(function(l){
+            return {dt: toKST(l.dt), desc: l.description};
+          })};
+        });
+
+    case 'checkPin':
+      return sbRpc('wn_check_pin', {p_pin:d.pin}).then(unwrap);
+
+    case 'saveAnnual':
+      var a = d.a || {};
+      return sbRpc('wn_save_annual', {
+        p_pin:d.pin, p_emp_id:a.empId, p_emp_name:a.empName,
+        p_date:a.date, p_type:a.type || ''
+      }).then(unwrap);
+
+    case 'addEmployee':
+      var emp = d.emp || {};
+      return sbRpc('wn_add_employee', {
+        p_pin:d.pin, p_name:emp.name, p_team:emp.team||'', p_color:emp.color||''
+      }).then(unwrap);
+
+    case 'updateEmployee':
+      var f = d.fields || {};
+      return sbRpc('wn_update_employee', {
+        p_pin:d.pin, p_id:d.id, p_name:f.name, p_team:f.team||'', p_color:f.color||''
+      }).then(unwrap);
+
+    case 'retireEmployee':
+      return sbRpc('wn_retire_employee', {p_pin:d.pin, p_id:d.id}).then(unwrap);
+    case 'unretireEmployee':
+      return sbRpc('wn_unretire_employee', {p_pin:d.pin, p_id:d.id}).then(unwrap);
+    case 'deleteEmployee':
+      return sbRpc('wn_delete_employee', {p_pin:d.pin, p_id:d.id}).then(unwrap);
+    case 'saveCalNotice':
+      return sbRpc('wn_save_notice', {p_pin:d.pin, p_notice:d.notice||''}).then(unwrap);
+  }
+  return Promise.resolve({ok:false, error:'알 수 없는 요청: '+action});
+
+  // RPC 는 {ok:…} 형태의 JSON 을 그대로 돌려준다
+  function unwrap(r){
+    if(r.__err) return {ok:false, error:r.__err, netfail:r.__net};
+    var v = r.__ok;
+    if(v && typeof v === 'object') return v;
+    return {ok:true};
+  }
+}
+
+// ── 공개 진입점 (화면 코드가 쓰는 것은 이것뿐) ─────────────
+function api(action, data, opts){
+  opts = opts || {};
+  if(!SB_URL || !SB_KEY){
+    alert('Supabase 주소/키가 설정되지 않았습니다. index.html 상단의 SB_URL, SB_KEY 를 확인해주세요.');
+    return Promise.resolve({ok:false, error:'Supabase 미설정'});
+  }
+
+  // ── 쓰기: 병합/캐시 없음, 성공 시 관련 캐시 무효화 ──
+  if(!READ_TTL[action]){
+    bumpPending();
+    return callAction(action, data).then(function(r){
+      dropPending();
+      if(r && r.ok) (INVALIDATES[action]||[]).forEach(dropCache);
+      return r;
+    });
+  }
+
+  // ── 읽기: 캐시 → 진행중 요청 병합 → 네트워크 ──
+  var k = cacheKey(action, data);
+  var hit = _mem[k] || (PERSIST[action] ? lsGet(k) : null);
+  if(hit) _mem[k] = hit;
+  if(!opts.force && hit && (Date.now() - hit.t) < READ_TTL[action]) return Promise.resolve(hit.v);
+  if(_inflight[k]) return _inflight[k];
+
+  bumpPending();
+  var p = callAction(action, data).then(function(r){
+    delete _inflight[k];
+    dropPending();
+    if(r && r.ok){
+      var entry = {t:Date.now(), v:r};
+      _mem[k] = entry;
+      if(PERSIST[action]) lsSet(k, entry);
+    } else if(r && r.netfail && hit){
+      return hit.v; // 통신 실패 시 마지막으로 성공한 데이터로 버틴다
+    }
+    return r;
+  });
+  _inflight[k] = p;
+  return p;
+}
+
 function currentPin(){ return localStorage.getItem('sch_pin') || ''; }
 
 // ══════════════════════════════════════════════════════════
@@ -354,15 +597,21 @@ function refreshRoleUI(){
     modeBtn.style.display='inline-flex'; logoutBtn.style.display='none';
   }
   renderEmpList();
-  loadCalNotice();
+  renderCalNotice();
 }
+// 역할은 낙관적으로 복원해 화면을 먼저 띄우고, 검증은 뒤에서 한다.
+// (모든 쓰기 요청에는 pin 이 그대로 실려가므로 실제 권한 판정은 서버가 한다)
 function initRole(){
   var pin = currentPin();
-  if(!pin){ ROLE=null; refreshRoleUI(); return; }
+  if(!pin){ ROLE=null; localStorage.removeItem('sch_role'); refreshRoleUI(); return; }
+  var cached = localStorage.getItem('sch_role');
+  if(cached && ROLE !== cached){ ROLE = cached; refreshRoleUI(); }
   api('checkPin', {pin:pin}).then(function(r){
-    ROLE = r.ok ? r.role : null;
-    if(!r.ok) localStorage.removeItem('sch_pin'); // PIN이 바뀐 경우 등
-    refreshRoleUI();
+    if(r && r.netfail) return;            // 통신 실패면 복원된 상태 유지
+    var next = r.ok ? r.role : null;
+    if(r.ok) localStorage.setItem('sch_role', next);
+    else { localStorage.removeItem('sch_pin'); localStorage.removeItem('sch_role'); }
+    if(next !== ROLE){ ROLE = next; refreshRoleUI(); }
   });
 }
 function openPinPop(){
@@ -382,6 +631,7 @@ function submitPin(){
   api('checkPin', {pin:pin}).then(function(r){
     if(r.ok){
       localStorage.setItem('sch_pin', pin);
+      localStorage.setItem('sch_role', r.role);
       ROLE = r.role;
       closePinPop();
       refreshRoleUI();
@@ -392,6 +642,7 @@ function submitPin(){
 }
 function doLogout(){
   localStorage.removeItem('sch_pin');
+  localStorage.removeItem('sch_role');
   ROLE = null;
   refreshRoleUI();
 }
@@ -403,9 +654,10 @@ var EMPLOYEES = [];
 function empName(id){ var e=EMPLOYEES.find(function(x){return x.id===id;}); return e?e.name:''; }
 function empColor(id){ var e=EMPLOYEES.find(function(x){return x.id===id;}); return e?(e.color||'#3B6FE8'):'#3B6FE8'; }
 
-function loadEmployees(){
-  return api('getEmployees', {}).then(function(r){
-    if(r.ok) EMPLOYEES = r.employees;
+var EMP_LOADED = false;
+function loadEmployees(force){
+  return api('getEmployees', {}, {force:!!force}).then(function(r){
+    if(r.ok){ EMPLOYEES = r.employees || []; EMP_LOADED = true; }
     return r;
   });
 }
@@ -419,7 +671,7 @@ document.querySelectorAll('.tbtn').forEach(function(btn){
     document.querySelectorAll('.pg').forEach(function(p){p.classList.remove('active');});
     btn.classList.add('active');
     document.getElementById('pg-'+btn.dataset.tab).classList.add('active');
-    if(btn.dataset.tab==='emp') renderEmpList();
+    if(btn.dataset.tab==='emp'){ renderEmpList(); loadEmployees().then(renderEmpList); }
     if(btn.dataset.tab==='log') loadLogs();
   });
 });
@@ -453,8 +705,7 @@ function submitAddEmp(){
     if(r.ok){
       document.getElementById('ne-name').value='';
       document.getElementById('ne-team').value='';
-      addLog('직원 등록: '+name);
-      loadEmployees().then(renderEmpList);
+      reloadEmpList();
     } else alert(r.error||'등록 실패');
   });
 }
@@ -463,10 +714,13 @@ function renderEmpList(){
   var canEdit = isSuper();
   document.getElementById('emp-add-card').style.display = canEdit ? '' : 'none';
   document.getElementById('emp-noauth-msg').style.display = canEdit ? 'none' : 'flex';
-  loadEmployees().then(function(){
+  (function(){
     var list = document.getElementById('emp-list');
     document.getElementById('emp-count').textContent = EMPLOYEES.length+'명';
-    if(!EMPLOYEES.length){ list.innerHTML='<div class="empty">등록된 직원이 없습니다.</div>'; return; }
+    if(!EMPLOYEES.length){
+      list.innerHTML = '<div class="empty">'+(EMP_LOADED ? '등록된 직원이 없습니다.' : '불러오는 중…')+'</div>';
+      return;
+    }
     var sorted = EMPLOYEES.slice().sort(function(a,b){
       var ra=a.retired?1:0, rb=b.retired?1:0;
       if(ra!==rb) return ra-rb;
@@ -489,14 +743,16 @@ function renderEmpList(){
         '</div>') : '')+
       '</div>';
     }).join('');
-  });
+  })();
 }
+// 서버 반영 후 목록 갱신 (강제 재조회 1회)
+function reloadEmpList(){ renderEmpList(); return loadEmployees(true).then(renderEmpList); }
 
 function doRetire(id, name){
   if(!isSuper()) return;
   if(!confirm(name+' 님을 퇴사 처리하시겠습니까?\n\n· 기존 연차 기록은 그대로 유지됩니다.\n· 표시 이름 앞에 "(퇴)"가 붙습니다.')) return;
   api('retireEmployee', {pin:currentPin(), id:id}).then(function(r){
-    if(r.ok){ addLog('퇴사 처리: '+name); renderEmpList(); }
+    if(r.ok){ reloadEmpList(); }
     else alert(r.error||'처리 실패');
   });
 }
@@ -504,7 +760,7 @@ function doUnretire(id, name){
   if(!isSuper()) return;
   if(!confirm(name.replace(/^\(퇴\)/,'')+' 님을 복직 처리하시겠습니까?')) return;
   api('unretireEmployee', {pin:currentPin(), id:id}).then(function(r){
-    if(r.ok){ addLog('복직 처리: '+name); renderEmpList(); }
+    if(r.ok){ reloadEmpList(); }
     else alert(r.error||'처리 실패');
   });
 }
@@ -512,7 +768,7 @@ function doDeleteEmp(id, name){
   if(!isSuper()) return;
   if(!confirm(name+' 님을 목록에서 완전히 삭제하시겠습니까?\n(연차 기록은 삭제되지 않고 남아있습니다)')) return;
   api('deleteEmployee', {pin:currentPin(), id:id}).then(function(r){
-    if(r.ok){ addLog('직원 삭제: '+name); renderEmpList(); }
+    if(r.ok){ reloadEmpList(); }
     else alert(r.error||'삭제 실패');
   });
 }
@@ -539,7 +795,7 @@ function submitEditEmp(){
   var team = document.getElementById('ee-team').value.trim();
   if(!name){ alert('이름을 입력해주세요.'); return; }
   api('updateEmployee', {pin:currentPin(), id:_editEmpId, fields:{name:name, team:team, color:_editEmpColor}}).then(function(r){
-    if(r.ok){ addLog('직원 정보 수정: '+name); closeEmpEdit(); loadEmployees().then(function(){renderEmpList(); loadCal();}); }
+    if(r.ok){ closeEmpEdit(); loadEmployees(true).then(function(){renderEmpList(); renderCal();}); }
     else alert(r.error||'저장 실패');
   });
 }
@@ -556,12 +812,33 @@ function moveCal(d){
   else{ cM+=d; if(cM<0){cM=11;cY--;} if(cM>11){cM=0;cY++;} }
   loadCal();
 }
-function loadCal(){
-  var ym = cY+'-'+String(cM+1).padStart(2,'0');
+function ymOf(y,m){ if(m<0){y--;m=11;} if(m>11){y++;m=0;} return y+'-'+String(m+1).padStart(2,'0'); }
+
+// 네트워크 없이 캐시로만 그리기
+function paintCalCached(){
+  var ym = ymOf(cY,cM);
   document.getElementById('cal-ttl').textContent = cY+'년 '+(cM+1)+'월';
-  api('getAnnuals', {ym:ym}).then(function(r){
-    cAn = r.ok ? r.annuals : [];
+  var cached = peek('getAnnuals', {ym:ym});
+  if(cached && cached.ok){ cAn = cached.annuals || []; renderCal(); return true; }
+  return false;
+}
+function loadCal(force){
+  var ym = ymOf(cY,cM);
+  var cached = paintCalCached() ? peek('getAnnuals', {ym:ym}) : null;
+  return api('getAnnuals', {ym:ym}, {force:!!force}).then(function(r){
+    if(ymOf(cY,cM) !== ym) return r;      // 그 사이 달을 또 넘겼으면 버린다
+    if(r.ok) cAn = r.annuals || [];
+    else if(!cached) cAn = [];
     renderCal();
+    prefetchMonths();
+    return r;
+  });
+}
+// 좌우 화살표가 즉시 반응하도록 앞뒤 달을 미리 받아둔다
+function prefetchMonths(){
+  [-1, 1].forEach(function(d){
+    var ym = ymOf(cY, cM+d);
+    if(!peek('getAnnuals', {ym:ym})) api('getAnnuals', {ym:ym});
   });
 }
 function renderCal(){
@@ -684,7 +961,6 @@ function saveAnnualType(type){
     if(res.ok){
       cAn = cAn.filter(function(a){return !(a.empId===id && a.date===popDate);});
       cAn.push({empId:id, empName:name, date:popDate, type:type});
-      addLog(name+' '+popDate+' '+type+' 등록');
       closeCPop(); renderCal();
     } else alert(res.error||'저장 실패');
   });
@@ -699,7 +975,6 @@ function deleteAnnual(){
   api('saveAnnual', {pin:currentPin(), a:{empId:id, empName:name, date:popDate, type:''}}).then(function(res){
     if(res.ok){
       cAn = cAn.filter(function(a){return !(a.empId===id && a.date===popDate);});
-      addLog(name+' '+popDate+' 연차/휴일근무 삭제');
       closeCPop(); renderCal();
     } else alert(res.error||'삭제 실패');
   });
@@ -713,16 +988,29 @@ document.addEventListener('click', function(e){
 // ══════════════════════════════════════════════════════════
 //  연차 공지
 // ══════════════════════════════════════════════════════════
-function loadCalNotice(){
+var CAL_NOTICE = null;
+function paintCalNotice(notice){
+  var viewEl = document.getElementById('cal-notice-view');
+  if(!(notice||'').trim()){
+    viewEl.innerHTML = isAdminUp() ? '<span style="color:#C0955A">공지사항을 입력해주세요.</span>' : '';
+  } else {
+    viewEl.innerHTML = notice.split('\n').map(function(l){return '<div>'+(l||'&nbsp;')+'</div>';}).join('');
+  }
+}
+// 네트워크 없이 현재 값으로 다시 그리기 (권한 배지 변경 등)
+function renderCalNotice(){
   document.getElementById('cal-notice-edit-btn').style.display = isAdminUp() ? 'inline-flex' : 'none';
-  api('getCalNotice', {}).then(function(res){
-    var notice = res.ok ? (res.notice||'') : '';
-    var viewEl = document.getElementById('cal-notice-view');
-    if(!notice.trim()){
-      viewEl.innerHTML = isAdminUp() ? '<span style="color:#C0955A">공지사항을 입력해주세요.</span>' : '';
-    } else {
-      viewEl.innerHTML = notice.split('\n').map(function(l){return '<div>'+(l||'&nbsp;')+'</div>';}).join('');
-    }
+  if(CAL_NOTICE === null){
+    var c = peek('getCalNotice', {});
+    if(c && c.ok) CAL_NOTICE = c.notice || '';
+  }
+  if(CAL_NOTICE !== null) paintCalNotice(CAL_NOTICE);
+}
+function loadCalNotice(force){
+  renderCalNotice();
+  return api('getCalNotice', {}, {force:!!force}).then(function(res){
+    if(res.ok){ CAL_NOTICE = res.notice || ''; paintCalNotice(CAL_NOTICE); }
+    return res;
   });
 }
 function openCalNoticeEdit(){
@@ -741,7 +1029,7 @@ function saveCalNotice(){
   if(!isAdminUp()) return;
   var notice = document.getElementById('cal-notice-ta').value.trim();
   api('saveCalNotice', {pin:currentPin(), notice:notice}).then(function(res){
-    if(res.ok){ addLog('연차 공지 수정'); cancelCalNoticeEdit(); loadCalNotice(); }
+    if(res.ok){ cancelCalNoticeEdit(); loadCalNotice(true); }
     else alert(res.error||'저장 실패');
   });
 }
@@ -749,23 +1037,47 @@ function saveCalNotice(){
 // ══════════════════════════════════════════════════════════
 //  변경이력
 // ══════════════════════════════════════════════════════════
+function paintLogs(r){
+  var list = document.getElementById('log-list');
+  if(!r || !r.ok || !r.logs || !r.logs.length){
+    list.innerHTML = '<div class="empty">'+(r ? '변경이력이 없습니다.' : '불러오는 중…')+'</div>';
+    return;
+  }
+  list.innerHTML = r.logs.map(function(l){
+    return '<div class="log-row"><div class="log-dt">'+(l.dt||'')+'</div><div>'+(l.desc||'')+'</div></div>';
+  }).join('');
+}
 function loadLogs(){
-  api('getChangeLogs', {days:60}).then(function(r){
-    var list = document.getElementById('log-list');
-    if(!r.ok || !r.logs.length){ list.innerHTML='<div class="empty">변경이력이 없습니다.</div>'; return; }
-    list.innerHTML = r.logs.map(function(l){
-      return '<div class="log-row"><div class="log-dt">'+(l.dt||'')+'</div><div>'+(l.desc||'')+'</div></div>';
-    }).join('');
-  });
+  paintLogs(peek('getChangeLogs', {days:60}));
+  return api('getChangeLogs', {days:60}).then(paintLogs);
 }
 
 // ══════════════════════════════════════════════════════════
 //  초기화
 // ══════════════════════════════════════════════════════════
-loadEmployees().then(function(){
-  loadCal();
-  initRole(); // 관리자모드 상태 복원 (renderEmpList/loadCalNotice 포함)
-});
+// 이전: getEmployees → checkPin → (getEmployees 중복 + getCalNotice) + getAnnuals
+//        = 왕복 3단계 직렬 + 중복 요청 1건.
+// 이제: 캐시로 즉시 그린 뒤, 필요한 요청 4건을 한 번에 동시 발사한다.
+(function boot(){
+  var ce = peek('getEmployees', {});
+  if(ce && ce.ok){ EMPLOYEES = ce.employees || []; EMP_LOADED = true; }
+  var cr = currentPin() ? localStorage.getItem('sch_role') : null;
+  if(cr) ROLE = cr;
+
+  refreshRoleUI();  // 캐시된 직원/권한/공지로 첫 화면을 바로 그린다
+
+  function hydrate(force){
+    loadEmployees(force).then(function(){ renderEmpList(); renderCal(); });
+    loadCal(force);
+    loadCalNotice(force);
+    initRole();
+  }
+
+  // 캐시로 먼저 그리고, 필요한 요청 4건을 한 번에 동시 발사한다.
+  // Supabase 는 호출당 100ms 안쪽이라 묶을 필요가 없다.
+  paintCalCached();
+  hydrate(true);
+})();
 </script>
 </body>
 </html>

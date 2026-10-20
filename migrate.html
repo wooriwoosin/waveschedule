@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>데이터 이전 도구</title>
+<style>
+:root{--bg:#F7F8FA;--s:#FFF;--b:#E4E6EA;--tp:#1A1D23;--ts:#5A6170;--tm:#9BA3AF;
+      --ac:#3B6FE8;--ok:#1D9E75;--wn:#BA7517;--dg:#A32D2D;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);
+     color:var(--tp);font-size:14px;line-height:1.6;padding:24px;max-width:860px;margin:0 auto}
+h1{font-size:20px;margin-bottom:4px}
+.sub{color:var(--ts);font-size:13px;margin-bottom:20px}
+.card{background:var(--s);border:1px solid var(--b);border-radius:10px;padding:16px;margin-bottom:16px}
+.card h2{font-size:14px;margin-bottom:12px;color:var(--ts)}
+label{display:block;font-size:12px;color:var(--ts);margin:10px 0 4px;font-weight:500}
+input,select{width:100%;padding:8px 10px;border:1.5px solid var(--b);border-radius:6px;
+             font-size:13px;font-family:inherit;outline:none}
+input:focus,select:focus{border-color:var(--ac)}
+.row{display:flex;gap:12px}.row>div{flex:1}
+button{padding:10px 16px;border:none;border-radius:7px;font-size:13px;font-weight:600;
+       font-family:inherit;cursor:pointer;color:#fff;background:var(--ac)}
+button.ghost{background:var(--s);color:var(--tp);border:1.5px solid var(--b)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+pre{background:#11141A;color:#D7DCE5;border-radius:8px;padding:14px;font-size:12px;
+    line-height:1.7;overflow:auto;max-height:440px;white-space:pre-wrap;word-break:break-all}
+.ok{color:#5BD6A6}.wn{color:#F0C070}.er{color:#FF8E8E}.dim{color:#7A8494}
+.step{font-size:11px;font-weight:700;color:var(--ac);letter-spacing:.5px;margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<h1>Google Sheets → Supabase 데이터 이전</h1>
+<div class="sub">일회용 도구입니다. 이전이 끝나면 이 파일은 지워도 됩니다.</div>
+
+<div class="card">
+  <h2>설정</h2>
+  <label>기존 Apps Script URL (읽기 전용으로만 사용)</label>
+  <input id="gas" value="https://script.google.com/macros/s/AKfycbwyuDoovIVN97ciiC3lty8J_hB6u-cZm2un__29nKTtajhJQB8t0gpPxEOtRSjwOqCkfg/exec">
+  <div class="row">
+    <div>
+      <label>Supabase URL</label>
+      <input id="sburl" value="https://iwfiilgjiqkdsuybqwwk.supabase.co">
+    </div>
+    <div>
+      <label>Supabase 공개 키</label>
+      <input id="sbkey" value="sb_publishable_q3SLb7fToGXt9J4o7tkYOw_QArw7mQ9">
+    </div>
+  </div>
+  <label>슈퍼관리자 PIN <span class="dim">(어디에도 저장되지 않습니다)</span></label>
+  <input id="pin" type="password" placeholder="Supabase 에 등록한 슈퍼관리자 PIN">
+  <div class="row">
+    <div><label>연차 조회 시작월</label><input id="ym1" value="2024-01" placeholder="YYYY-MM"></div>
+    <div><label>연차 조회 종료월</label><input id="ym2" placeholder="YYYY-MM"></div>
+    <div>
+      <label>기존 변경이력 시각</label>
+      <select id="logtz">
+        <option value="UTC" selected>UTC 로 기록됨 (기본)</option>
+        <option value="KST">한국시간으로 기록됨</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<div class="btns">
+  <button id="b1" onclick="step1()">① 점검 — 읽기만</button>
+  <button id="b2" onclick="step2()" class="ghost" disabled>② 이전 실행</button>
+  <button id="b3" onclick="step3()" class="ghost">③ 검증</button>
+</div>
+
+<pre id="log" class="dim">① 점검을 먼저 누르세요. 아무것도 쓰지 않고 기존 데이터만 읽어 건수를 보여줍니다.</pre>
+
+<script>
+// 종료월 기본값: 올해 +1년
+(function(){
+  var d = new Date(); d.setFullYear(d.getFullYear()+1);
+  document.getElementById('ym2').value = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+})();
+
+var LOG = document.getElementById('log');
+var PAYLOAD = null, EXPECT = null;
+function log(s, cls){
+  LOG.className='';
+  LOG.innerHTML += (cls ? '<span class="'+cls+'">'+s+'</span>' : s) + '\n';
+  LOG.scrollTop = LOG.scrollHeight;
+}
+function clearLog(){ LOG.innerHTML=''; LOG.className=''; }
+function busy(on){ ['b1','b2','b3'].forEach(function(id){ document.getElementById(id).disabled = on; }); }
+function esc(s){ return String(s).replace(/[&<>]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+function cfg(){
+  return {
+    gas:   document.getElementById('gas').value.trim(),
+    sburl: document.getElementById('sburl').value.trim().replace(/\/+$/,'').replace(/\/rest\/v1$/,''),
+    sbkey: document.getElementById('sbkey').value.trim(),
+    pin:   document.getElementById('pin').value.trim(),  // 앞뒤 공백 때문에 인증이 실패하는 것을 막는다
+    ym1:   document.getElementById('ym1').value.trim(),
+    ym2:   document.getElementById('ym2').value.trim(),
+    logtz: document.getElementById('logtz').value
+  };
+}
+
+// ── 통신 ───────────────────────────────────────────────────────
+function gasApi(c, action, data){
+  return fetch(c.gas, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(Object.assign({action:action}, data||{}))
+  }).then(function(r){ return r.json(); });
+}
+function sbHeaders(c){
+  return {'apikey':c.sbkey, 'Authorization':'Bearer '+c.sbkey, 'Content-Type':'application/json'};
+}
+function sbGet(c, path){
+  return fetch(c.sburl+'/rest/v1/'+path, {headers: sbHeaders(c)}).then(function(r){
+    return r.text().then(function(t){
+      var j = null; try{ j = JSON.parse(t); }catch(e){}
+      if(!r.ok) throw new Error((j && (j.message||j.error)) || ('HTTP '+r.status+' '+t.slice(0,160)));
+      return j;
+    });
+  });
+}
+function sbRpc(c, fn, body){
+  return fetch(c.sburl+'/rest/v1/rpc/'+fn, {
+    method:'POST', headers: sbHeaders(c), body: JSON.stringify(body)
+  }).then(function(r){
+    return r.text().then(function(t){
+      var j = null; try{ j = JSON.parse(t); }catch(e){}
+      if(!r.ok) throw new Error((j && (j.message||j.error)) || ('HTTP '+r.status+' '+t.slice(0,160)));
+      return j;
+    });
+  });
+}
+
+// ── 월 목록 / 동시 실행 ─────────────────────────────────────────
+function monthList(ym1, ym2){
+  var m = /^(\d{4})-(\d{2})$/.exec(ym1), n = /^(\d{4})-(\d{2})$/.exec(ym2);
+  if(!m || !n) throw new Error('조회 범위는 YYYY-MM 형식으로 입력해주세요.');
+  var y=+m[1], mo=+m[2]-1, ey=+n[1], em=+n[2]-1, out=[];
+  if(y>ey || (y===ey && mo>em)) throw new Error('시작월이 종료월보다 뒤입니다.');
+  while(y<ey || (y===ey && mo<=em)){
+    out.push(y+'-'+String(mo+1).padStart(2,'0'));
+    mo++; if(mo>11){ mo=0; y++; }
+    if(out.length>600) break;
+  }
+  return out;
+}
+// GAS 는 호출당 1초 가까이 걸리므로 4건씩 동시에 던진다
+function pool(items, n, worker, onTick){
+  var i=0, done=0, out=new Array(items.length);
+  return new Promise(function(resolve, reject){
+    var active=0, failed=false;
+    function next(){
+      if(failed) return;
+      if(done===items.length) return resolve(out);
+      while(active<n && i<items.length){
+        (function(k){
+          active++; i++;
+          worker(items[k], k).then(function(v){
+            out[k]=v; active--; done++; if(onTick) onTick(done, items.length); next();
+          }, function(e){ failed=true; reject(e); });
+        })(i);
+      }
+    }
+    next();
+  });
+}
+
+// ── 기존 변경이력 시각 정규화 ───────────────────────────────────
+// 기존 GAS 는 new Date().toISOString() 으로 기록했으므로 UTC 다.
+// 오프셋이 이미 붙어 있으면 그대로 두고, 아니면 선택한 시간대로 해석한다.
+function normDt(raw, tz){
+  var s = String(raw||'').trim();
+  if(!s) return '';
+  if(/[Zz]$|[+-]\d{2}:?\d{2}$/.test(s)) return s;
+  var m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s);
+  if(!m) return s;
+  var base = m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':'+(m[6]||'00');
+  return base + (tz==='KST' ? '+09:00' : 'Z');
+}
+function fmtKST(iso){
+  var d = new Date(iso);
+  if(isNaN(d)) return '(해석 불가)';
+  var p = new Date(d.getTime() + 9*3600*1000);
+  return p.toISOString().slice(0,19).replace('T',' ') + ' KST';
+}
+
+// ── ① 점검 ─────────────────────────────────────────────────────
+function step1(){
+  var c = cfg();
+  clearLog(); busy(true);
+  document.getElementById('b2').disabled = true;
+  PAYLOAD = null; EXPECT = null;
+
+  var months;
+  try{ months = monthList(c.ym1, c.ym2); }
+  catch(e){ log('✖ '+e.message,'er'); busy(false); return; }
+
+  log('기존 Apps Script 에서 읽습니다. 쓰기는 하지 않습니다.','dim');
+  log('연차 조회 범위: '+c.ym1+' ~ '+c.ym2+' ('+months.length+'개월)','dim');
+  log('');
+
+  var warn = [];
+  Promise.all([
+    gasApi(c,'getEmployees',{}),
+    gasApi(c,'getCalNotice',{}),
+    gasApi(c,'getChangeLogs',{days:36500})
+  ]).then(function(res){
+    var emps = (res[0] && res[0].ok) ? (res[0].employees||[]) : [];
+    var notice = (res[1] && res[1].ok) ? (res[1].notice||'') : '';
+    var logs = (res[2] && res[2].ok) ? (res[2].logs||[]) : [];
+    if(!res[0] || !res[0].ok) warn.push('직원 조회 실패: '+((res[0]&&res[0].error)||'알 수 없음'));
+    log('직원      '+emps.length+'명');
+    log('공지      '+(notice ? notice.split('\n')[0].slice(0,40)+'…' : '(없음)'));
+    log('변경이력  '+logs.length+'건');
+    log('');
+    log('연차를 월별로 읽습니다…','dim');
+
+    return pool(months, 4, function(ym){
+      return gasApi(c,'getAnnuals',{ym:ym}).then(function(r){
+        return (r && r.ok) ? (r.annuals||[]) : [];
+      });
+    }, function(d,t){
+      if(d % 6 === 0 || d===t) log('  '+d+'/'+t+'개월','dim');
+    }).then(function(chunks){
+      var annuals = [];
+      chunks.forEach(function(a, i){
+        (a||[]).forEach(function(x){ annuals.push(x); });
+      });
+      return {emps:emps, notice:notice, logs:logs, annuals:annuals, chunks:chunks, months:months};
+    });
+  }).then(function(d){
+    log('');
+    log('── 점검 결과 ──────────────────────────────');
+
+    // 직원 검사
+    var ids = {}, dupIds = [], noId = 0;
+    d.emps.forEach(function(e){
+      if(!e.id){ noId++; return; }
+      if(ids[e.id]) dupIds.push(e.id); else ids[e.id] = e.name;
+    });
+    if(noId)         warn.push('ID 없는 직원 '+noId+'건 → 이전되지 않습니다');
+    if(dupIds.length)warn.push('ID 중복 직원 '+dupIds.length+'건 → 첫 번째만 이전됩니다');
+
+    // 연차 검사
+    var seen = {}, dupAnn = 0, badDate = 0, noType = 0, orphan = {};
+    d.annuals.forEach(function(a){
+      if(!a.empId || !a.type){ noType++; return; }
+      if(!/^\d{4}-\d{2}-\d{2}/.test(String(a.date||''))){ badDate++; return; }
+      var k = a.empId+'|'+String(a.date).slice(0,10);
+      if(seen[k]) dupAnn++; else seen[k]=1;
+      if(!ids[a.empId]) orphan[a.empId] = (orphan[a.empId]||0)+1;
+    });
+    var orphanKeys = Object.keys(orphan);
+    var orphanN = orphanKeys.reduce(function(s,k){return s+orphan[k];},0);
+
+    log('직원        '+d.emps.length+'명  (퇴사 '+d.emps.filter(function(e){return e.retired;}).length+'명)');
+    log('연차        '+d.annuals.length+'건 → 실제 이전 '+Object.keys(seen).length+'건');
+    log('변경이력    '+d.logs.length+'건');
+
+    // 범위 경계 확인
+    var first = d.chunks.findIndex(function(a){return a && a.length;});
+    var last  = -1; d.chunks.forEach(function(a,i){ if(a && a.length) last=i; });
+    if(first === 0)                      warn.push('가장 이른 달('+d.months[0]+')에 데이터가 있습니다 → 시작월을 더 앞으로 당겨보세요');
+    if(last === d.chunks.length-1)       warn.push('가장 늦은 달('+d.months[d.months.length-1]+')에 데이터가 있습니다 → 종료월을 더 뒤로 미뤄보세요');
+    if(first >= 0) log('데이터 구간  '+d.months[first]+' ~ '+d.months[last], 'dim');
+
+    if(dupAnn)  warn.push('같은 직원/같은 날 중복 '+dupAnn+'건 → 마지막 값으로 합쳐집니다');
+    if(badDate) warn.push('날짜가 깨진 연차 '+badDate+'건 → 이전되지 않습니다');
+    if(noType)  warn.push('직원 또는 종류가 빈 연차 '+noType+'건 → 이전되지 않습니다');
+    if(orphanN) warn.push('삭제된 직원을 참조하는 연차 '+orphanN+'건 (직원 '+orphanKeys.length+'명) → 저장된 이름으로 그대로 표시됩니다');
+
+    // 이력 시각 변환 예시
+    log('');
+    log('변경이력 시각 변환 예시 ('+cfg().logtz+' 로 해석):','dim');
+    d.logs.slice(0,3).forEach(function(l){
+      var n = normDt(l.dt, cfg().logtz);
+      log('  '+esc(l.dt||'(빈값)')+'  →  '+fmtKST(n), 'dim');
+    });
+    var badLogDt = d.logs.filter(function(l){ return l.dt && !normDt(l.dt, cfg().logtz).match(/[Zz]$|[+-]\d{2}:?\d{2}$/); }).length;
+    if(badLogDt) warn.push('시각을 해석할 수 없는 이력 '+badLogDt+'건 → 이전 시각으로 기록됩니다');
+
+    // 페이로드 구성
+    PAYLOAD = {
+      employees: d.emps.map(function(e){
+        return {id:String(e.id||''), name:e.name||'', team:e.team||'', color:e.color||'',
+                retired: e.retired ? 'true':'false', retiredAt: e.retiredAt||''};
+      }),
+      annuals: d.annuals.map(function(a){
+        return {empId:String(a.empId||''), empName:a.empName||'',
+                date:String(a.date||'').slice(0,10), type:a.type||''};
+      }),
+      notice: d.notice,
+      logs: d.logs.map(function(l){
+        return {dt: normDt(l.dt, cfg().logtz), by: l.by||'', desc: l.desc||''};
+      })
+    };
+    // 이전이 끝나면 이 수가 나와야 한다 (걸러지는 행을 뺀 값)
+    EXPECT = {
+      employees: Object.keys(ids).length,
+      annuals:   Object.keys(seen).length,
+      logs:      d.logs.filter(function(l){ return (l.desc||'') !== ''; }).length
+    };
+    log('이전 후 예상: 직원 '+EXPECT.employees+'명 / 연차 '+EXPECT.annuals
+        +'건 / 이력 '+EXPECT.logs+'건','dim');
+
+    log('');
+    if(warn.length){
+      log('⚠ 확인할 점 '+warn.length+'건','wn');
+      warn.forEach(function(w){ log('  · '+esc(w),'wn'); });
+    } else {
+      log('✔ 특별히 걸리는 점 없습니다.','ok');
+    }
+    log('');
+    log('위 건수가 실제 시트와 맞으면 ② 이전 실행을 누르세요.','ok');
+    document.getElementById('b2').disabled = false;
+  }).catch(function(e){
+    log('');
+    log('✖ 읽기 실패: '+e.message,'er');
+    log('  · Apps Script URL 이 맞는지, 배포가 "모든 사용자" 접근인지 확인해주세요.','dim');
+  }).then(function(){ busy(false); });
+}
+
+// ── ② 이전 실행 ────────────────────────────────────────────────
+function step2(){
+  var c = cfg();
+  if(!PAYLOAD){ log('① 점검을 먼저 실행해주세요.','er'); return; }
+  if(!c.pin){ log('✖ 슈퍼관리자 PIN 을 입력해주세요.','er'); return; }
+
+  var n = PAYLOAD.employees.length+'명 / 연차 '+PAYLOAD.annuals.length+'건 / 이력 '+PAYLOAD.logs.length+'건';
+  if(!confirm('Supabase 로 이전합니다.\n\n직원 '+n+'\n\n계속할까요?')) return;
+
+  busy(true);
+  log('');
+  log('── 이전 실행 ──────────────────────────────');
+  sbRpc(c, 'wn_migrate_import', {p_pin:c.pin, p_data:PAYLOAD})
+    .then(function(r){ report(r); })
+    .catch(function(e){
+      if(/이미 데이터가 있습니다/.test(e.message)){
+        log('⚠ Supabase 에 이미 데이터가 있습니다.','wn');
+        if(confirm('Supabase 의 기존 직원/연차/이력을 모두 지우고 다시 넣을까요?\n\n(Google 시트는 건드리지 않습니다)')){
+          log('덮어쓰기로 다시 실행합니다…','dim');
+          return sbRpc(c,'wn_migrate_import',{p_pin:c.pin, p_data:PAYLOAD, p_replace:true}).then(report);
+        }
+        log('취소했습니다.','dim');
+        return;
+      }
+      throw e;
+    })
+    .catch(function(e){ log('✖ 이전 실패: '+e.message,'er'); })
+    .then(function(){ busy(false); });
+
+  function report(r){
+    log('✔ 이전 완료','ok');
+    log('   직원      '+r.employees+'명','ok');
+    log('   연차      '+r.annuals+'건'+(r.dup_annuals ? '  (중복 '+r.dup_annuals+'건 합쳐짐)':''),'ok');
+    log('   변경이력  '+r.logs+'건','ok');
+    if(r.orphan_annuals) log('   삭제된 직원 참조 연차 '+r.orphan_annuals+'건 (이름으로 표시됨)','dim');
+    log('');
+    log('③ 검증을 눌러 Supabase 에서 다시 읽어 확인하세요.','ok');
+  }
+}
+
+// ── ③ 검증 ─────────────────────────────────────────────────────
+function step3(){
+  var c = cfg();
+  busy(true);
+  log('');
+  log('── 검증: Supabase 에서 다시 읽기 ─────────');
+  var t0 = Date.now();
+  Promise.all([
+    sbGet(c, 'wn_employees?select=id,name,team,color,retired,retired_at&order=name'),
+    sbGet(c, 'wn_annuals?select=emp_id,emp_name,date,type&order=date'),
+    sbGet(c, 'wn_settings?select=value&key=eq.cal_notice'),
+    sbGet(c, 'wn_change_logs?select=dt,description&order=dt.desc&limit=5')
+  ]).then(function(r){
+    var ms = Date.now()-t0;
+    log('응답 '+ms+'ms  (기존 Apps Script 는 보통 800~2000ms)','ok');
+    log('');
+    log('직원      '+r[0].length+'명');
+    r[0].slice(0,5).forEach(function(e){
+      log('  '+esc(e.name)+'  '+esc(e.team||'-')+'  '+e.color+(e.retired?'  [퇴사 '+(e.retired_at||'-')+']':''),'dim');
+    });
+    if(r[0].length>5) log('  … 외 '+(r[0].length-5)+'명','dim');
+    log('연차      '+r[1].length+'건');
+    r[1].slice(0,5).forEach(function(a){ log('  '+a.date+'  '+esc(a.emp_name)+'  '+esc(a.type),'dim'); });
+    if(r[1].length>5) log('  … 외 '+(r[1].length-5)+'건','dim');
+    log('공지      '+esc((r[2][0] && r[2][0].value || '(없음)').split('\n')[0].slice(0,50)));
+    log('최근 이력');
+    r[3].forEach(function(l){ log('  '+fmtKST(l.dt)+'  '+esc(l.description),'dim'); });
+    log('');
+    if(EXPECT){
+      var okE = r[0].length === EXPECT.employees;
+      var okA = r[1].length === EXPECT.annuals;
+      log('── 점검 때 예상한 수와 비교 ──');
+      log((okE?'✔':'✖')+' 직원  예상 '+EXPECT.employees+'명 / 실제 '+r[0].length+'명', okE?'ok':'er');
+      log((okA?'✔':'✖')+' 연차  예상 '+EXPECT.annuals+'건 / 실제 '+r[1].length+'건', okA?'ok':'er');
+      log('');
+      if(okE && okA) log('✔ 일치합니다. 이전 완료.','ok');
+      else log('✖ 수가 어긋납니다. ② 를 덮어쓰기로 다시 실행해보세요.','er');
+    } else {
+      log('① 점검을 거치지 않아 비교할 기준이 없습니다. 위 내용을 직접 확인해주세요.','wn');
+    }
+  }).catch(function(e){
+    log('✖ 검증 실패: '+e.message,'er');
+    log('  · 스키마(supabase-schema.sql)를 먼저 실행했는지 확인해주세요.','dim');
+  }).then(function(){ busy(false); });
+}
+</script>
+</body>
+</html>
