@@ -40,7 +40,7 @@ begin
          lower(coalesce(e->>'retired','')) in ('true','t','1','y','yes'),
          case when coalesce(e->>'retiredAt','') ~ '^\d{4}-\d{2}-\d{2}'
               then left(e->>'retiredAt',10)::date else null end
-    from jsonb_array_elements(coalesce(p_data->'wn_employees', '[]'::jsonb)) e
+    from jsonb_array_elements(coalesce(p_data->'employees', '[]'::jsonb)) e
    where coalesce(e->>'id','') <> ''
      and coalesce(e->>'name','') <> ''
   on conflict (id) do nothing;
@@ -50,7 +50,7 @@ begin
   -- Postgres 가 "ON CONFLICT DO UPDATE 가 같은 행을 두 번 건드린다"며 거부하므로
   -- 먼저 distinct on 으로 추려낸다. 여러 건이면 시트에서 뒤에 있는 것을 쓴다.
   select count(*) into v_raw_ann
-    from jsonb_array_elements(coalesce(p_data->'wn_annuals', '[]'::jsonb)) a
+    from jsonb_array_elements(coalesce(p_data->'annuals', '[]'::jsonb)) a
    where coalesce(a->>'empId','') <> ''
      and coalesce(a->>'type','')  <> ''
      and coalesce(a->>'date','')  ~ '^\d{4}-\d{2}-\d{2}';
@@ -63,7 +63,7 @@ begin
              left(a->>'date',10)::date     as d,
              a->>'type'                    as type,
              ord
-        from jsonb_array_elements(coalesce(p_data->'wn_annuals', '[]'::jsonb))
+        from jsonb_array_elements(coalesce(p_data->'annuals', '[]'::jsonb))
              with ordinality as t(a, ord)
        where coalesce(a->>'empId','') <> ''
          and coalesce(a->>'type','')  <> ''
@@ -104,8 +104,8 @@ begin
 
   return jsonb_build_object(
     'ok', true,
-    'wn_employees', v_emp,
-    'wn_annuals', v_ann,
+    'employees', v_emp,
+    'annuals', v_ann,
     'logs', v_log,
     'dup_annuals', greatest(v_raw_ann - v_ins_ann, 0),  -- 중복이라 합쳐진 건수
     'orphan_annuals', v_orphan_ann);                    -- 삭제된 직원을 참조하는 건수

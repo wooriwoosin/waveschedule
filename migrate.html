@@ -94,7 +94,7 @@ function cfg(){
     gas:   document.getElementById('gas').value.trim(),
     sburl: document.getElementById('sburl').value.trim().replace(/\/+$/,'').replace(/\/rest\/v1$/,''),
     sbkey: document.getElementById('sbkey').value.trim(),
-    pin:   document.getElementById('pin').value,
+    pin:   document.getElementById('pin').value.trim(),  // 앞뒤 공백 때문에 인증이 실패하는 것을 막는다
     ym1:   document.getElementById('ym1').value.trim(),
     ym2:   document.getElementById('ym2').value.trim(),
     logtz: document.getElementById('logtz').value
